@@ -1,0 +1,12 @@
+{
+  "name": "pokemon-champions",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "fetch-data": "node scripts/fetch-data.mjs"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.7"
+  }
+}
