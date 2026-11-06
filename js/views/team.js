@@ -330,7 +330,10 @@ function analysisTabs(app, team, battlers, set, root) {
     }, label)));
   const live = battlers.filter(Boolean);
   if (!live.length && ui.tab !== 'mates') {
-    body.append(h('p', { class: 'muted' }, 'ポケモンを入れると、環境への相性が出ます。'));
+    body.append(
+      h('p', { class: 'muted' }, 'ポケモンを入れると、環境への相性が出ます。'),
+      h('a', { class: 'btn', href: '#/suggest' }, icon('spark'), '環境から6体を提案してもらう'),
+    );
   } else if (ui.tab === 'threats') body.append(threatsView(app, battlers, root));
   else if (ui.tab === 'mates') body.append(matesView(app, team, set));
   else if (ui.tab === 'types') body.append(typesView(app, battlers));

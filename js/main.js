@@ -7,6 +7,7 @@ import { renderDetail } from './views/detail.js';
 import { renderTeam } from './views/team.js';
 import { renderSelect } from './views/select.js';
 import { renderCalc } from './views/calc.js';
+import { renderSuggest } from './views/suggest.js';
 
 const view = document.getElementById('view');
 
@@ -22,6 +23,7 @@ window.__app = app;
 const ROUTES = [
   [/^#\/p\/([\w-]+)$/, 'ranking', (m) => renderDetail(app, view, m[1])],
   [/^#\/team(?:\?t=([\w-]+))?$/, 'team', (m) => renderTeam(app, view, m[1])],
+  [/^#\/suggest$/, 'suggest', () => renderSuggest(app, view)],
   [/^#\/select$/, 'select', () => renderSelect(app, view)],
   [/^#\/calc$/, 'calc', () => renderCalc(app, view)],
   [/^#?\/?$/, 'ranking', () => renderRanking(app, view)],

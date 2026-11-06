@@ -439,6 +439,21 @@ select:disabled { opacity: 0.6; }
 .speed { width: 3em; font-weight: 700; }
 .mine-tag { background: var(--accent); color: #1d1606; }
 
+/* ---------- 提案 ---------- */
+
+.mt { margin-top: 12px; }
+.more-opts { margin-top: 10px; }
+.more-opts summary { cursor: pointer; }
+.btn:disabled { opacity: 0.6; cursor: default; }
+.suggest-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.suggest-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.style-tag { background: var(--blue); margin-left: 0; }
+.suggest-members { display: grid; gap: 6px; grid-template-columns: 1fr 1fr; }
+@media (min-width: 760px) { .suggest-members { grid-template-columns: repeat(3, 1fr); } }
+.suggest-mon { display: flex; flex-direction: column; gap: 2px; background: var(--card2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; text-decoration: none; min-width: 0; }
+.suggest-mon .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.suggest .reasons { margin-top: 8px; }
+
 /* ---------- 選出 ---------- */
 
 .opp-slots { display: grid; gap: 6px; grid-template-columns: 1fr 1fr; }
