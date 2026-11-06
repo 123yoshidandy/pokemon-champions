@@ -6,10 +6,11 @@ import { calcStats, STATS, SP_MAX } from './stats.js';
 export const TEAM_SIZE = 6;
 
 // よく使われている型で埋める。持ち物はチーム内で重ならないようにする
-export function defaultMember(db, id, team = []) {
+// noMega: メガストーンを持たせない（チームにすでにメガシンカがいる前提で比べるとき）
+export function defaultMember(db, id, team = [], { noMega = false } = {}) {
   const u = usageOf(db, id);
   const takenItems = new Set(team.filter((m) => m && m.id !== id).map((m) => m.item));
-  const megaTaken = team.some((m) => m && m.id !== id && isMegaStone(db, m.id, m.item));
+  const megaTaken = noMega || team.some((m) => m && m.id !== id && isMegaStone(db, m.id, m.item));
   const item = u.items.map((x) => x[0]).find((i) => !takenItems.has(i) && !(megaTaken && isMegaStone(db, id, i))) ?? '';
   const form = battleForm(db, id, item);
   const ability = form?.mega ? form.abilities[0] : u.abilities[0]?.[0] ?? form?.abilities[0] ?? '';
