@@ -20,28 +20,61 @@ const FORMATS = [
   { key: 'doubles', api: 'Doubles' },
   { key: 'singles', api: 'Singles' },
 ];
-const CONCURRENCY = 4;
+// 取得元は個人のファンサイトなので、同時に2本まで・1件ごとに間を空けて取る（800件で5〜6分）
+const CONCURRENCY = 2;
+const REQUEST_INTERVAL_MS = 400;
+// 続けてこの件数だけ失敗したら、取得元の形が変わったとみて全体を打ち切る
+const MAX_CONSECUTIVE_FAILURES = 10;
 const HISTORY_DAYS = 60;
+// PokeAPI と Showdown のデータは、ほとんど変わらないので、この日数ごとに取り直す
+const REFERENCE_MAX_AGE_DAYS = 30;
+const REFERENCE_CACHE = path.join(ROOT, 'scripts', 'cache', 'reference.json');
 const UA = 'pokemon-champions-builder (+https://github.com/123yoshidandy/pokemon-champions)';
 
 const force = process.argv.includes('--force');
 
 // ---------- 通信 ----------
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+class AbortRun extends Error {}
+
+// やり直すのは、つながらないとき・429・5xx だけ（429 は Retry-After に従う）。404 などはすぐ失敗にする
 async function fetchText(url, tries = 4) {
   for (let i = 1; ; i++) {
+    let res;
     try {
-      const res = await fetch(url, { headers: { 'user-agent': UA } });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.text();
+      res = await fetch(url, { headers: { 'user-agent': UA } });
     } catch (e) {
       if (i >= tries) throw new Error(`${url}: ${e.message}`);
-      await new Promise((r) => setTimeout(r, 1000 * 2 ** i));
+      await sleep(1000 * 2 ** i);
+      continue;
     }
+    if (res.ok) return await res.text();
+    if (!(res.status === 429 || res.status >= 500) || i >= tries) throw new Error(`${url}: HTTP ${res.status}`);
+    const retryAfter = Number(res.headers.get('retry-after'));
+    await sleep(retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** i);
   }
 }
 
 const fetchJSON = async (url) => JSON.parse(await fetchText(url));
+
+// 取得元（championsbattledata.com）への要求。間を空け、失敗が続いたら打ち切る
+let consecutiveFailures = 0;
+async function apiJSON(pathAndQuery) {
+  try {
+    const json = await fetchJSON(`${API}${pathAndQuery}`);
+    consecutiveFailures = 0;
+    return json;
+  } catch (e) {
+    if (++consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+      throw new AbortRun(`${MAX_CONSECUTIVE_FAILURES}件続けて失敗したので打ち切ります（最後: ${e.message}）`);
+    }
+    throw e;
+  } finally {
+    await sleep(REQUEST_INTERVAL_MS);
+  }
+}
 
 async function pool(items, fn) {
   const out = new Array(items.length);
@@ -204,10 +237,58 @@ function jaMegaName(form, baseJa) {
   return `メガ${baseJa}${x}`;
 }
 
+// ---------- 技の性能と日本語名（手元に保存して使い回す） ----------
+
+function compactMove(d) {
+  return {
+    type: d.type,
+    cat: d.category, // Physical / Special / Status
+    power: d.basePower || 0,
+    acc: d.accuracy === true ? null : d.accuracy,
+    prio: d.priority || 0,
+    target: d.target,
+    ...(d.multihit ? { multihit: d.multihit } : {}),
+    // ダメージ計算で使う区分（接触・パンチ・かみつき・切る・波動）
+    ...Object.fromEntries(['contact', 'punch', 'bite', 'slicing', 'pulse'].filter((f) => d.flags?.[f]).map((f) => [f, true])),
+    ...(d.secondary || d.secondaries ? { secondary: true } : {}),
+    ...(d.recoil || d.hasCrashDamage ? { recoil: true } : {}),
+  };
+}
+
+// 保存したものを使う。ないとき・--force・古いとき・知らない技が出たときだけ取り直す
+async function loadReference(usedMoves) {
+  const cached = await readJSON(REFERENCE_CACHE, null);
+  const ageDays = cached ? (Date.now() - Date.parse(cached.fetchedAt)) / 86400e3 : Infinity;
+  const unknown = cached ? [...usedMoves].filter((m) => !cached.moves[norm(m)]) : [];
+  const reason = !cached ? '保存したものがない' : force ? '--force' : ageDays > REFERENCE_MAX_AGE_DAYS ? `${Math.floor(ageDays)}日たった`
+    : unknown.length ? `知らない技がある（${unknown.slice(0, 3).join(', ')}）` : null;
+  if (!reason) return cached;
+  // 取り直したのに知らない技が残るとき（チャンピオンズの新しい技など）、毎回取り直さないように、前回と同じなら使い回す
+  if (cached && !force && ageDays <= REFERENCE_MAX_AGE_DAYS && cached.unknownMoves?.join() === unknown.join()) return cached;
+
+  console.log(`PokeAPI と Showdown のデータを取り直します（${reason}）`);
+  const sdMoves = await fetchJSON(SHOWDOWN_MOVES);
+  const tables = await Promise.all([
+    nameTable('pokemon_species_names', 'pokemon_species_id'),
+    nameTable('move_names', 'move_id'),
+    nameTable('item_names', 'item_id'),
+    nameTable('ability_names', 'ability_id'),
+    nameTable('nature_names', 'nature_id'),
+  ]);
+  const ref = {
+    fetchedAt: new Date().toISOString(),
+    moves: Object.fromEntries(Object.entries(sdMoves).map(([id, d]) => [id, compactMove(d)])),
+    names: Object.fromEntries(['species', 'moves', 'items', 'abilities', 'natures'].map((k, i) => [k, Object.fromEntries(tables[i])])),
+  };
+  ref.unknownMoves = [...usedMoves].filter((m) => !ref.moves[norm(m)]);
+  await writeJSON(REFERENCE_CACHE, ref);
+  return ref;
+}
+
 // ---------- 本体 ----------
 
 async function main() {
-  const firstRanking = await fetchJSON(`${API}/api/rankings?format=Doubles`);
+  const firstRanking = await apiJSON("/api/rankings?format=Doubles");
   const sourceVersion = firstRanking.dataVersion ?? null;
   const prevMeta = await readJSON(path.join(DATA, 'meta.json'), {});
   if (!force && sourceVersion && prevMeta.sourceVersion === sourceVersion) {
@@ -217,7 +298,7 @@ async function main() {
 
   const rankings = {};
   for (const f of FORMATS) {
-    rankings[f.key] = f.api === 'Doubles' ? firstRanking : await fetchJSON(`${API}/api/rankings?format=${f.api}`);
+    rankings[f.key] = f.api === 'Doubles' ? firstRanking : await apiJSON(`/api/rankings?format=${f.api}`);
     console.log(`${f.api}: ${rankings[f.key].rankings.length} 体`);
   }
 
@@ -229,12 +310,18 @@ async function main() {
   // 種族データ
   const metaById = new Map();
   await pool([...entries.values()], async (e) => {
-    const m = await fetchJSON(`${API}/api/metadata/${e.showdownId}`);
-    if (m.rows?.length) metaById.set(e.showdownId, m.rows);
-    else console.warn(`メタデータなし: ${e.name}`);
+    try {
+      const m = await apiJSON(`/api/metadata/${e.showdownId}`);
+      if (m.rows?.length) metaById.set(e.showdownId, m.rows);
+      else console.warn(`メタデータなし: ${e.name}`);
+    } catch (err) {
+      if (err instanceof AbortRun) throw err;
+      console.warn(`メタデータなし: ${e.name} (${err.message})`);
+    }
   });
   const pokedex = {};
-  for (const [id, rows] of metaById) pokedex[id] = buildSpecies(entries.get(id), rows);
+  // 並行で取るので、取れた順ではなくランキングの順に並べる（日ごとの差分を、中身の変化だけにする）
+  for (const id of entries.keys()) if (metaById.has(id)) pokedex[id] = buildSpecies(entries.get(id), metaById.get(id));
 
   // 形式ごとの採用データ
   const usageByFormat = {};
@@ -244,47 +331,29 @@ async function main() {
     let done = 0;
     await pool(list, async (r) => {
       try {
-        const b = await fetchJSON(`${API}/api/battle/${f.api}/${r.showdownId}`);
+        const b = await apiJSON(`/api/battle/${f.api}/${r.showdownId}`);
         usage[r.showdownId] = compactUsage(b.rows ?? [], nameToId);
       } catch (e) {
+        if (e instanceof AbortRun) throw e;
         console.warn(`採用データなし: ${f.api} ${r.name} (${e.message})`);
       }
       if (++done % 50 === 0) console.log(`  ${f.api} ${done}/${list.length}`);
     });
-    usageByFormat[f.key] = usage;
+    usageByFormat[f.key] = Object.fromEntries(list.filter((r) => usage[r.showdownId]).map((r) => [r.showdownId, usage[r.showdownId]]));
   }
 
-  // 技の性能（採用されている技だけ）
-  const sdMoves = await fetchJSON(SHOWDOWN_MOVES);
+  // 技の性能（採用されている技だけ）と、日本語名の対応表
   const usedMoves = new Set();
   for (const u of Object.values(usageByFormat)) for (const p of Object.values(u)) for (const [m] of p.moves) usedMoves.add(m);
+  const ref = await loadReference(usedMoves);
   const moves = {};
   for (const m of usedMoves) {
-    const d = sdMoves[norm(m)];
-    if (!d) { console.warn(`技データなし: ${m}`); continue; }
-    moves[m] = {
-      type: d.type,
-      cat: d.category, // Physical / Special / Status
-      power: d.basePower || 0,
-      acc: d.accuracy === true ? null : d.accuracy,
-      prio: d.priority || 0,
-      target: d.target,
-      ...(d.multihit ? { multihit: d.multihit } : {}),
-      // ダメージ計算で使う区分（接触・パンチ・かみつき・切る・波動）
-      ...Object.fromEntries(['contact', 'punch', 'bite', 'slicing', 'pulse'].filter((f) => d.flags?.[f]).map((f) => [f, true])),
-      ...(d.secondary || d.secondaries ? { secondary: true } : {}),
-      ...(d.recoil || d.hasCrashDamage ? { recoil: true } : {}),
-    };
+    const d = ref.moves[norm(m)];
+    if (d) moves[m] = d;
+    else console.warn(`技データなし: ${m}`);
   }
-
-  // 日本語名
-  const [speciesJa, movesJa, itemsJa, abilitiesJa, naturesJa] = await Promise.all([
-    nameTable('pokemon_species_names', 'pokemon_species_id'),
-    nameTable('move_names', 'move_id'),
-    nameTable('item_names', 'item_id'),
-    nameTable('ability_names', 'ability_id'),
-    nameTable('nature_names', 'nature_id'),
-  ]);
+  const [speciesJa, movesJa, itemsJa, abilitiesJa, naturesJa] = ['species', 'moves', 'items', 'abilities', 'natures']
+    .map((k) => new Map(Object.entries(ref.names[k])));
   const overrides = await readJSON(path.join(DATA, 'names-ja-overrides.json'), {});
   const names = { pokemon: {}, moves: {}, items: {}, abilities: {}, natures: {} };
   const missing = { pokemon: [], moves: [], items: [], abilities: [], natures: [] };
