@@ -42,6 +42,19 @@ https://123yoshidandy.github.io/pokemon-champions/
 
 GitHub Actions（`.github/workflows/update-data.yml`）が毎日 19:30（日本時間）にデータを取り直し、テストが通れば `data/` をコミットする。順位の推移（`data/history/`）は、このときに記録していく。
 
+取得元は個人のファンサイトなので、負荷をかけないようにしている。
+
+- 取得元のデータの版が前回と同じなら、何も取らずに終える
+- 同時に2本まで、1件ごとに 0.4 秒空ける（全部で約800件、5〜6分）
+- やり直すのは、つながらないとき・429・5xx だけ（429 は Retry-After に従う）。10件続けて失敗したら打ち切る
+- PokeAPI と Showdown のデータは `scripts/cache/reference.json` に保存して使い回す（30日ごとか、知らない技が出たときに取り直す）
+
+取得元から止めてほしいと言われたら、すぐに自動の取得を止める。
+
+```bash
+gh workflow disable update-data.yml   # 再開は gh workflow enable update-data.yml
+```
+
 日本語名がないもの（チャンピオンズで新しく出た特性など）は英語で表示される。`data/names-ja-overrides.json` に書くと、その名前で上書きできる。
 
 ```json
