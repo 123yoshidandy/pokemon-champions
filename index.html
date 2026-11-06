@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#141a33">
+  <title>Champions Lab</title>
+  <meta name="description" content="ポケモンチャンピオンズの使用率から構築を考えるツール">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <a class="logo" href="#/">Champions Lab</a>
+    <div class="format-switch" role="group" aria-label="形式">
+      <button type="button" data-format="doubles">ダブル</button>
+      <button type="button" data-format="singles">シングル</button>
+    </div>
+  </header>
+  <main id="view" class="view"></main>
+  <nav class="tabbar" aria-label="画面">
+    <a href="#/" data-tab="ranking"><span class="tab-icon" data-icon="ranking"></span><span>環境</span></a>
+    <a href="#/team" data-tab="team"><span class="tab-icon" data-icon="team"></span><span>構築</span></a>
+    <a href="#/select" data-tab="select"><span class="tab-icon" data-icon="select"></span><span>選出</span></a>
+    <a href="#/calc" data-tab="calc"><span class="tab-icon" data-icon="calc"></span><span>計算</span></a>
+  </nav>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
