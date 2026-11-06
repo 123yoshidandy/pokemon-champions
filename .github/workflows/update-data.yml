@@ -1,0 +1,31 @@
+name: データの更新
+
+on:
+  schedule:
+    # 取得元は日本時間の18時半ごろに更新されるので、19時半（JST）に取りに行く
+    - cron: '30 10 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: node scripts/fetch-data.mjs
+      # 取得元の形が変わって壊れたデータを公開しないよう、テストが通ったときだけコミットする
+      - run: npm test
+      - name: 変わっていればコミット
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git diff --cached --quiet && exit 0
+          git commit -m "データを更新（$(TZ=Asia/Tokyo date +'%Y-%m-%d')）"
+          git push
