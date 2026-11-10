@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { makeDB, isMegaStone, megaRuleDB, canMega } from '../js/data.js';
 import { suggestTeams, isSetter, STYLES, stylesFor, styleMember, bestTeam, minorAxisTeams, MINOR_FROM } from '../js/suggest.js';
-import { memberBattler } from '../js/team.js';
+import { memberBattler, megaStoneShare, MEGA_ONLY_SHARE } from '../js/team.js';
 
 const read = (f) => JSON.parse(readFileSync(new URL(`../data/${f}`, import.meta.url), 'utf8'));
 const shared = { dex: read('pokedex.json'), moves: read('moves.json'), names: read('names-ja.json'), meta: read('meta.json') };
@@ -19,6 +19,15 @@ function expectValid(db, s) {
 }
 
 describe('構築の提案', () => {
+  it('メガシンカの型でしか使われていない種族を、メガなしで入れない（ふつうのルール）', () => {
+    for (const db of [doubles, singles]) {
+      for (const s of suggestTeams(db, [], { pool: 60, threats: 40, results: 3 })) {
+        for (const m of s.team) {
+          if (!isMegaStone(db, m.id, m.item)) expect(megaStoneShare(db, m.id), m.id).toBeLessThan(MEGA_ONLY_SHARE);
+        }
+      }
+    }
+  });
   it('メガシンカバトルでは、6体ともメガシンカできる種族で、メガシンカは1体', () => {
     const db = megaRuleDB(singles);
     for (const s of suggestTeams(db, [], { pool: 40, threats: 30, results: 2 })) {

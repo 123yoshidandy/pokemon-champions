@@ -1,28 +1,83 @@
 // 構築（チーム）のデータ
 // member = { id, item, ability, nature, moves:[4], sp:[6] }
-import { usageOf, battleForm, jaPokemon, jaItem, jaAbility, jaMove, jaNature, isMegaStone } from './data.js';
-import { calcStats, STATS, SP_MAX } from './stats.js';
+import { usageOf, battleForm, jaPokemon, jaItem, jaAbility, jaMove, jaNature, isMegaStone, moveData, isAttack } from './data.js';
+import { calcStats, STATS, SP_MAX, NATURES } from './stats.js';
 
 export const TEAM_SIZE = 6;
 
-// よく使われている型で埋める。持ち物はチーム内で重ならないようにする
+// こだわりアイテム（固定される技の分類。スカーフはどちらでもよい）と、変化技を使えない持ち物
+const CHOICE = { 'Choice Scarf': null, 'Choice Band': 'Physical', 'Choice Specs': 'Special' };
+const NO_STATUS = new Set([...Object.keys(CHOICE), 'Assault Vest']);
+// 1ターン目にしか使えないので、技が固定される持ち物では使わない
+const FIRST_TURN_ONLY = new Set(['Fake Out', 'First Impression']);
+// メガストーンが選べないときに、これより採用率の低い持ち物には落とさない
+const FALLBACK_ITEM_MIN_PCT = 1;
+
+// 持ち物に合う技（使用率の順）。合わせられなければ null
+export function movesForItem(db, u, item) {
+  const all = [...new Set(u.moves.map((x) => x[0]))];
+  if (!NO_STATUS.has(item)) return all.slice(0, 4);
+  const attacks = all.filter((m) => isAttack(moveData(db, m)) && !FIRST_TURN_ONLY.has(m));
+  if (attacks.length < 4) return null;
+  const cat = CHOICE[item];
+  if (!cat) return attacks.slice(0, 4);
+  // こだわりハチマキ・メガネは、合う分類の技が 3 つ以上あるときだけ（足りない分は、ほかの攻撃技で埋める）
+  const match = attacks.filter((m) => moveData(db, m).cat === cat);
+  if (match.length < 3) return null;
+  return [...match, ...attacks.filter((m) => !match.includes(m))].slice(0, 4);
+}
+
+// 技に合う性格と能力ポイント（攻撃技が物理寄りなら、こうげきを下げない性格と、こうげきに振った配分）
+function natureAndSpread(db, u, moves, item) {
+  let phys = 0;
+  let spec = 0;
+  for (const m of moves) {
+    const mv = moveData(db, m);
+    const pct = u.moves.find(([n]) => n === m)?.[1] ?? 1;
+    if (mv?.cat === 'Physical') phys += pct;
+    else if (mv?.cat === 'Special') spec += pct;
+  }
+  const main = phys > spec * 1.5 ? 'atk' : spec > phys * 1.5 ? 'spa' : null;
+  const natures = u.natures.map((x) => x[0]);
+  const nature = (main && natures.find((n) => NATURES[n]?.[1] !== main)) || natures[0] || 'Serious';
+  const spreads = u.spreads.map((x) => x[1]);
+  const idx = { atk: 1, spa: 3 }[main];
+  let pool = main ? spreads.filter((sp) => sp[idx] >= SP_MAX / 2) : spreads;
+  // きあいのタスキは、HP に振らない配分を選ぶ
+  if (item === 'Focus Sash' && pool.some((sp) => sp[0] < SP_MAX / 2)) pool = pool.filter((sp) => sp[0] < SP_MAX / 2);
+  return { nature, sp: (pool[0] ?? spreads[0])?.slice() ?? [0, 0, 0, 0, 0, 0] };
+}
+
+// よく使われている型で埋める。持ち物はチーム内で重ならないようにし、技・性格・能力ポイントは持ち物に合わせる
 // noMega: メガストーンを持たせない（チームにすでにメガシンカがいる前提で比べるとき）
 export function defaultMember(db, id, team = [], { noMega = false } = {}) {
   const u = usageOf(db, id);
   const takenItems = new Set(team.filter((m) => m && m.id !== id).map((m) => m.item));
   const megaTaken = noMega || team.some((m) => m && m.id !== id && isMegaStone(db, m.id, m.item));
-  const item = u.items.map((x) => x[0]).find((i) => !takenItems.has(i) && !(megaTaken && isMegaStone(db, id, i))) ?? '';
+  const usable = u.items.filter(([i]) => !takenItems.has(i) && !(megaTaken && isMegaStone(db, id, i)) && movesForItem(db, u, i));
+  // メガストーンを持てないときは、採用率の低すぎる持ち物には落とさない（なければ、残りの一番目）
+  const fallback = megaTaken && u.items.some(([i]) => isMegaStone(db, id, i));
+  const item = ((fallback && usable.find(([, p]) => (p ?? 0) >= FALLBACK_ITEM_MIN_PCT)) || usable[0])?.[0] ?? '';
   const form = battleForm(db, id, item);
   const ability = form?.mega ? form.abilities[0] : u.abilities[0]?.[0] ?? form?.abilities[0] ?? '';
+  const moves = movesForItem(db, u, item) ?? [];
+  const { nature, sp } = natureAndSpread(db, u, moves, item);
   return {
     id,
     item,
     ability,
-    nature: u.natures[0]?.[0] ?? 'Serious',
-    moves: [...new Set(u.moves.map((x) => x[0]))].slice(0, 4).concat(['', '', '', '']).slice(0, 4),
-    sp: u.spreads[0]?.[1]?.slice() ?? [0, 0, 0, 0, 0, 0],
+    nature,
+    moves: moves.concat(['', '', '', '']).slice(0, 4),
+    sp,
   };
 }
+
+// メガストーンの採用率がこれ以上なら、使用率データはほとんどメガシンカの型のものとみなす
+export const MEGA_ONLY_SHARE = 50;
+
+// メガストーンの採用率（%）。これが高い種族の使用率データは、ほとんどメガシンカの型のもの
+export const megaStoneShare = (db, id) =>
+  usageOf(db, id).items.filter(([i]) => isMegaStone(db, id, i)).reduce((a, [, p]) => a + (p ?? 0), 0);
 
 // 対戦で使う形（実数値やタイプを含む）にする
 export function memberBattler(db, m) {

@@ -3,7 +3,7 @@
 // 1体ずつ足しながら良い組み合わせを残していく（ビームサーチ）
 import { TYPES, defenseProfile } from './types.js';
 import { usageOf, isMegaStone, moveData, isAttack } from './data.js';
-import { defaultMember, memberBattler, normalizeTeam, TEAM_SIZE } from './team.js';
+import { defaultMember, memberBattler, normalizeTeam, megaStoneShare, MEGA_ONLY_SHARE, TEAM_SIZE } from './team.js';
 import { duel, topMeta, rankWeight, teamSupport, supportNames } from './analysis.js';
 
 // ---------- スタイル ----------
@@ -152,7 +152,11 @@ function prepare(db, ids, threats, style = '') {
     const variants = [];
     const main = styleMember(db, defaultMember(db, id), style);
     variants.push(main);
-    if (isMegaStone(db, id, main.item)) variants.push(styleMember(db, defaultMember(db, id, [], { noMega: true }), style));
+    // メガなしの型。使用率データのほとんどがメガシンカの型の種族は、メガなしでは候補にしない（実在しない型になるため）。
+    // メガシンカバトルでは、メガは1体だけで残りはメガなしにするしかないので、持ち物に合わせて組み直した型を使う
+    if (isMegaStone(db, id, main.item) && (db.megaRule || megaStoneShare(db, id) < MEGA_ONLY_SHARE)) {
+      variants.push(styleMember(db, defaultMember(db, id, [], { noMega: true }), style));
+    }
     cands.set(id, variants.map((member) => {
       const b = memberBattler(db, member);
       const scores = threats.map((t) => (t.id === id ? 0 : duel(db, b, t).score));

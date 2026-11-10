@@ -4,7 +4,7 @@ import { effectiveness, effectivenessWithAbility, defenseProfile } from '../js/t
 import { calcStats, speedTiers, validateSpread, groupSpreads } from '../js/stats.js';
 import { calcDamage, koChance, koLabel } from '../js/damage.js';
 import { makeDB, megaForItem, battleForm, searchPokemon, searchNames, toKatakana, jaPokemon, spriteUrls, megaRuleDB, canMega } from '../js/data.js';
-import { defaultMember, memberBattler, encodeTeam, decodeTeam, toShowdown, fromShowdown, normalizeTeam } from '../js/team.js';
+import { defaultMember, memberBattler, encodeTeam, decodeTeam, toShowdown, fromShowdown, normalizeTeam, movesForItem } from '../js/team.js';
 import { duel, threatReport, suggestTeammates, selectionPlan, defenseTable, offenseTable, speedList, metaBattler, trendAttackType, typeReach, teamSupport, supportedDuel, bulkPlans, basicPlan } from '../js/analysis.js';
 
 const read = (f) => JSON.parse(readFileSync(new URL(`../data/${f}`, import.meta.url), 'utf8'));
@@ -139,6 +139,30 @@ describe('構築', () => {
     const b = defaultMember(doubles, 'garchomp', [{ ...a, id: 'sneasler' }]);
     expect(b.item).not.toBe(a.item);
   });
+  it('こだわりアイテム・とつげきチョッキでは、変化技とねこだましを持たせない', () => {
+    const NO_STATUS = ['Choice Scarf', 'Choice Band', 'Choice Specs', 'Assault Vest'];
+    for (const db of [doubles, singles]) {
+      for (const r of db.ranking) {
+        const m = defaultMember(db, r.id, [], { noMega: true });
+        if (!NO_STATUS.includes(m.item)) continue;
+        for (const mv of m.moves) expect(db.moves[mv]?.cat, `${r.id} ${m.item} ${mv}`).not.toBe('Status');
+        expect(m.moves).not.toContain('Fake Out');
+      }
+    }
+  });
+  it('攻撃技が4つそろわない持ち物は選ばない', () => {
+    const u = { moves: [['Protect', 90], ['Earthquake', 80], ['Tailwind', 70]] };
+    expect(movesForItem(doubles, u, 'Choice Scarf')).toBeNull();
+    expect(movesForItem(doubles, u, 'Sitrus Berry')).toEqual(['Protect', 'Earthquake', 'Tailwind']);
+  });
+  it('メガストーンが持てないリザードンを、まもる入りのこだわりスカーフにしない', () => {
+    const megaHolder = { ...defaultMember(doubles, 'garchomp'), item: 'Garchompite Z' };
+    const z = defaultMember(doubles, 'charizard', [megaHolder]);
+    expect(z.item).not.toMatch(/ite( [XYZ])?$/);
+    if (z.item.startsWith('Choice')) expect(z.moves).not.toContain('Protect');
+    // 特殊の技なら、とくこうを下げる性格にしない
+    expect(['Adamant', 'Jolly', 'Impish', 'Careful']).not.toContain(z.nature);
+  });
   it('メガストーンは 1 体だけ', () => {
     const megaHolder = { ...defaultMember(doubles, 'charizard'), item: 'Charizardite Y' };
     const g = defaultMember(doubles, 'garchomp', [megaHolder]);
@@ -186,6 +210,17 @@ describe('対面', () => {
   it('遅くても、先制技で倒しきれるなら先に倒す', () => {
     const strong = (o) => p({ stats: [170, 160, 100, 100, 100, 99], ...o });
     expect(duel(db, strong({ moves: ['Strike', 'Quick'] }), p({}, 100)).score).toBeGreaterThan(duel(db, strong(), p({}, 100)).score);
+  });
+  it('こだわりアイテムでは、途中で先制技に切り替えない', () => {
+    const strong = (o) => p({ stats: [170, 160, 100, 100, 100, 99], item: 'Choice Band', ...o });
+    expect(duel(db, strong({ moves: ['Strike', 'Quick'] }), p({}, 100)).score).toBe(duel(db, strong(), p({}, 100)).score);
+  });
+  it('ソーラービームは、はれでなければ2ターンに1回', () => {
+    const sdb = { doubles: false, moves: { 'Solar Beam': { type: 'Grass', cat: 'Special', power: 120, acc: 100, prio: 0, target: 'normal' } } };
+    const user = (ability) => p({ types: ['Fire'], moves: ['Solar Beam'], ability });
+    const plain = duel(sdb, user(''), p()).a.avgPct;
+    const sun = duel(sdb, user('Drought'), p()).a.avgPct;
+    expect(sun).toBeCloseTo(plain * 2, 0);
   });
   it('おいかぜ・トリックルーム・ねこだましで、先に動ける', () => {
     const slow = p({}, 99);

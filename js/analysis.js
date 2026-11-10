@@ -1,9 +1,9 @@
 // 構築の分析（相性・対面・相方の提案・選出）
 // どれも「よく使われている型どうしで、どちらが先に倒せるか」を土台にしている
 import { TYPES, defenseProfile, effectiveness } from './types.js';
-import { moveData, isAttack, usageOf } from './data.js';
+import { moveData, isAttack, usageOf, isMegaStone } from './data.js';
 import { calcDamage } from './damage.js';
-import { defaultMember, memberBattler } from './team.js';
+import { defaultMember, memberBattler, megaStoneShare, MEGA_ONLY_SHARE } from './team.js';
 import { SP_TOTAL, SP_MAX } from './stats.js';
 
 // ---------- 対戦する形 ----------
@@ -17,10 +17,13 @@ export function metaBattler(db, id) {
   if (!byDb.has(id)) {
     const m = defaultMember(db, id);
     // 環境の型では、攻撃技を優先して 4 つ選ぶ（補助技ばかりだと打点が出ないため）
-    const u = usageOf(db, id);
-    const attacks = u.moves.filter(([n]) => isAttack(moveData(db, n))).map(([n]) => n);
-    const others = u.moves.map(([n]) => n).filter((n) => !attacks.includes(n));
-    m.moves = [...attacks.slice(0, 3), ...others, ...attacks.slice(3)].slice(0, 4);
+    // こだわりアイテムなどで、すでに攻撃技だけにしてあるときは、そのまま
+    if (m.moves.some((n) => n && !isAttack(moveData(db, n)))) {
+      const u = usageOf(db, id);
+      const attacks = u.moves.filter(([n]) => isAttack(moveData(db, n))).map(([n]) => n);
+      const others = u.moves.map(([n]) => n).filter((n) => !attacks.includes(n));
+      m.moves = [...attacks.slice(0, 3), ...others, ...attacks.slice(3)].slice(0, 4);
+    }
     byDb.set(id, memberBattler(db, m));
   }
   return byDb.get(id);
@@ -34,6 +37,13 @@ export const rankWeight = (pos) => 1 / Math.sqrt(pos || 50);
 
 // ---------- 打点 ----------
 
+// 1 ターン目にためて、2 ターン目に攻撃する技
+const CHARGE_MOVES = new Set(['Solar Beam', 'Solar Blade', 'Meteor Beam', 'Sky Attack', 'Skull Bash', 'Razor Wind', 'Freeze Shock', 'Ice Burn', 'Electro Shot']);
+// 場に出ると天気を変える特性
+const WEATHER_ABILITY = { Drought: 'sun', Drizzle: 'rain', 'Sand Stream': 'sand', 'Snow Warning': 'snow' };
+// 技が固定される持ち物
+const isChoice = (b) => ['Choice Scarf', 'Choice Band', 'Choice Specs'].includes(b.item);
+
 const NO_HIT = { move: null, avgPct: 0, minPct: 0, maxPct: 0, ko: { n: Infinity, chance: 0 }, eff: 0 };
 
 // 一番通る技（命中も考えた平均ダメージ%で比べる）。filter で候補の技を絞れる
@@ -43,7 +53,9 @@ export function bestHit(db, att, def, field = {}, filter = null) {
     const mv = moveData(db, name);
     if (!isAttack(mv) || (filter && !filter(name, mv))) continue;
     const r = calcDamage(att, def, { name, ...mv }, { doubles: db.doubles, ...field });
-    const avg = ((r.minPct + r.maxPct) / 2) * ((mv.acc ?? 100) / 100);
+    let avg = ((r.minPct + r.maxPct) / 2) * ((mv.acc ?? 100) / 100);
+    // ため技は、はれ（ソーラー技）かパワフルハーブでなければ、2 ターンに 1 回しか当たらない
+    if (CHARGE_MOVES.has(name) && att.item !== 'Power Herb' && !(field.weather === 'sun' && name.startsWith('Solar'))) avg /= 2;
     if (!best || avg > best.avgPct) best = { move: name, avgPct: avg, minPct: r.minPct, maxPct: r.maxPct, ko: r.ko, eff: r.eff };
   }
   return best ?? NO_HIT;
@@ -88,7 +100,9 @@ function recoilPct(db, att, def, hit) {
 // 相手の HP が満タンのとき（first）と、減ったあと（later）の打点。マルチスケイルなどは満タンのときだけ効く
 function hitPair(db, att, def, field, filter) {
   const first = bestHit(db, att, def, field, filter);
-  const later = FULL_HP_GUARD.has(def.ability) ? bestHit(db, att, { ...def, hpPct: 99 }, field, filter) : first;
+  // こだわりアイテムでは、最初に選んだ技のまま
+  const laterFilter = isChoice(att) ? (name) => name === first.move : filter;
+  const later = FULL_HP_GUARD.has(def.ability) ? bestHit(db, att, { ...def, hpPct: 99 }, field, laterFilter) : first;
   return {
     first: { ...first, recoil: recoilPct(db, att, def, first) },
     later: { ...later, recoil: recoilPct(db, att, def, later) },
@@ -98,6 +112,8 @@ function hitPair(db, att, def, field, filter) {
 // 攻撃の手段: いつもの技と、先制技（倒しきれるときに使う。ねこだましは除く）
 function attackPlan(db, att, def, field) {
   const main = hitPair(db, att, def, field);
+  // こだわりアイテムでは、途中で先制技に切り替えられない
+  if (isChoice(att)) return { main, prio: null };
   const prio = hitPair(db, att, def, field, (name, mv) => mv.prio > 0 && name !== 'Fake Out');
   return { main, prio: prio.first.move ? prio : null };
 }
@@ -149,8 +165,12 @@ export function duel(db, a, b, opts = {}) {
   // お互いの特性のいかく（場に出たときに相手に効く）
   const A = b.ability === 'Intimidate' ? intimidated(a) : a;
   const B = a.ability === 'Intimidate' || opts.intimidate ? intimidated(b) : b;
-  const ha = attackPlan(db, A, B, {});
-  const hb = { ...attackPlan(db, B, A, { reflect: opts.reflect, lightScreen: opts.lightScreen }), skipFirst: !!(opts.fakeOut || opts.redirect) };
+  // 片方だけが天気を変える特性なら、その天気で戦う（両方なら、どちらになるかわからないので入れない）
+  const wa = WEATHER_ABILITY[a.ability];
+  const wb = WEATHER_ABILITY[b.ability];
+  const weather = wa && wb ? null : wa ?? wb ?? null;
+  const ha = attackPlan(db, A, B, { weather });
+  const hb = { ...attackPlan(db, B, A, { weather, reflect: opts.reflect, lightScreen: opts.lightScreen }), skipFirst: !!(opts.fakeOut || opts.redirect) };
   const sa = speedOf(a) * (opts.tailwind ? 2 : 1);
   const sb = speedOf(b);
   const aFirst = opts.trickRoom ? sa < sb : sa > sb;
@@ -297,7 +317,10 @@ export function suggestTeammates(db, team, { pool = 100, threats = 40, limit = 1
   for (const id of topMeta(db, pool)) {
     if (inTeam.has(db.dex[id]?.base)) continue;
     // 構築に入れるときと同じ型（持ち物を重ねない・メガストーンは1体だけ）で比べる
-    const c = memberBattler(db, defaultMember(db, id, team.filter(Boolean)));
+    const cm = defaultMember(db, id, team.filter(Boolean));
+    // メガシンカの型でしか使われていない種族は、メガストーンを持てないなら出さない（メガシンカバトルは除く）
+    if (!db.megaRule && !isMegaStone(db, id, cm.item) && megaStoneShare(db, id) >= MEGA_ONLY_SHARE) continue;
+    const c = memberBattler(db, cm);
     // 入れたあとの支援で、候補自身と、いまのメンバーの勝ち筋がどれだけ増えるか
     const after = teamSupport(db, [...members, c]);
     const mates = membersBest(after);
