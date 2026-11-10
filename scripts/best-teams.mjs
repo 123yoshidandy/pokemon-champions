@@ -91,8 +91,10 @@ async function merge(results) {
     const db = await loadRuleDB(rule);
     const t = Date.now();
     console.log(`${rule}: ${parts.length}個のシードの上位を比べ直します`);
-    const ranking = finalRace(db, parts.flatMap((r) => r.result.ranking.map((x) => x.team.filter(Boolean))), {
-      opponents: first.settings.opponents, keep: first.settings.keep, seed: 99, log: (s) => console.log(`${rule} ${s}`),
+    // 各シードの 1 位を候補として集め（同じ構築は 1 つ）、共通の相手の構築群で測り直して並べる
+    const tops = parts.map((r) => r.result.ranking[0].team.filter(Boolean));
+    const ranking = finalRace(db, tops, {
+      opponents: first.settings.opponents, keep: tops.length, seed: 99, log: (s) => console.log(`${rule} ${s}`),
     }).map((x) => ({ ...x, fromSuggestion: parts.some((r) => r.result.ranking.some((y) => y.fromSuggestion && teamKeyOf(y.team) === teamKeyOf(x.team))) }));
     logRanking(ranking);
     out.rules[rule] = {

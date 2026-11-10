@@ -7,7 +7,7 @@ import * as store from '../store.js';
 import { formatLabel, saveTeam } from './common.js';
 
 const MODES = [
-  ['best', '一番の構築'],
+  ['best', '強い候補'],
   ['custom', '条件を選ぶ'],
   ['minor', 'マイナー軸'],
 ];
@@ -114,11 +114,10 @@ export function renderSuggest(app, root) {
 
   const modeBody = {
     best: pre
-      ? [h('p', { class: 'muted small' }, pre.ranking
-        ? `選出からターンを追って戦わせるシミュレーションで、ありそうな相手の構築${pre.opponents}個への勝率（使用率の重み付き）が高い順に並べています。有望な候補ほど多く試合させて絞り込み、上位は数千試合で比べています（${dateTime(pre.generatedAt)} に計算${pre.seeds ? `。探索を${pre.seeds.length}通りのシードでまわし、それぞれの上位を比べ直しています` : ''}）。今の提案の1位は ${pct(pre.baseline.winRate)}。`
-        : `ありそうな相手の構築${pre.opponents}個と、選出からターンを追って戦わせ、使用率で重みを付けた勝率が一番高い構築です（${dateTime(pre.generatedAt)} に計算。勝率 ${pct(pre.winRate)}、もとの提案の構築は ${pct(pre.baseline.winRate)}）。`),
-        // シミュレーターの調整が済んだら消す
-        h('p', { class: 'warnings' }, '勝率はシミュレーターの調整中の値で、高めに出ています。')]
+      ? [h('p', { class: 'muted small' }, pre.seeds
+        ? `使用率の上位50体の、よく使われる型だけで組み、ありそうな相手の構築${pre.opponents}個と、選出からターンを追って戦わせるシミュレーションで強かった構築の候補です。探索を${pre.seeds.length}通りのシードでまわし、それぞれで勝率が最も高かった構築を、共通の相手で測り直して並べています（${dateTime(pre.generatedAt)} に計算）。`
+        : `ありそうな相手の構築${pre.opponents}個と、選出からターンを追って戦わせるシミュレーションで強かった構築の候補です（${dateTime(pre.generatedAt)} に計算）。`),
+        h('p', { class: 'warnings' }, '自作のシミュレーターの結果で、相手は使用率から組み立てた構築です。勝率は実戦より高く出ます。考察の候補として使ってください。')]
       : [h('p', { class: 'muted small' }, `条件を選ばずに、上位${BEST_OPTS.pool}体から、上位${BEST_OPTS.threats}体に一番勝てる構築を1つに絞ります。${precomputed.data === undefined ? '' : db.doubles ? '（対戦のシミュレーションによる計算が、まだこのデータにはないので、この場で簡単に計算します）' : '（シングルは、対戦のシミュレーションによる計算をしていないので、この場で簡単に計算します）'}`)],
     custom: [
       h('h2', {}, '軸'),
@@ -225,7 +224,7 @@ function simLines(db, x, top) {
   // 1 位との差が、ぶれの幅より小さいか
   const close = x !== top && top.envWinRate - x.envWinRate < Math.hypot(x.margin, top.margin);
   return [
-    h('span', { class: 'reason' }, `勝率 ${pct(x.envWinRate)}（±${pct(x.margin)}・${x.games}試合）${x.fromSuggestion ? '（今の提案）' : ''}${close ? '。1位との差はぶれの範囲' : ''}`),
+    h('span', { class: 'reason' }, `勝率 ${pct(x.envWinRate)}（±${pct(x.margin)}・${x.games}試合）${x.fromSuggestion ? '（今の提案）' : ''}${close ? '。1つ目の候補との差はぶれの範囲' : ''}`),
     x.weakEnv?.length ? h('span', { class: 'reason bad' }, `苦手な相手: ${x.weakEnv.map((w) => `${names(w.ids)}の構築（${pct(w.rate)}）`).join(' / ')}`) : null,
   ];
 }

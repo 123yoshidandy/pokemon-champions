@@ -71,23 +71,6 @@ function swapMember(db, team, r, pool) {
   return next;
 }
 
-// 持ち物を、採用率 1% 以上の別の持ち物にする（型は持ち物に合わせて組み直す）
-function swapItem(db, team, r) {
-  const i = Math.floor(r() * TEAM_SIZE);
-  const m = team[i];
-  const taken = new Set(others(team, i).map((x) => x.item));
-  const megaTaken = others(team, i).some((x) => isMegaStone(db, x.id, x.item));
-  const items = usageOf(db, m.id).items
-    .filter(([it, p]) => (p ?? 0) >= 1 && it !== m.item && !taken.has(it) && !(megaTaken && isMegaStone(db, m.id, it)))
-    .map(([it]) => it);
-  if (!items.length) return null;
-  const nm = memberWithItem(db, m.id, items[Math.floor(r() * items.length)]);
-  if (!nm) return null;
-  const next = team.slice();
-  next[i] = nm;
-  return next;
-}
-
 // メガシンカする 1 体を入れ替える
 function swapMega(db, team, r) {
   const can = team.map((m, i) => i).filter((i) => !isMegaStone(db, team[i].id, team[i].item) && usageOf(db, team[i].id).items.some(([it]) => isMegaStone(db, team[i].id, it)));
@@ -99,11 +82,9 @@ function swapMega(db, team, r) {
   return next;
 }
 
+// 型は、よく使われる型に限る（持ち物は入れ替えない。使用率の低い型で、シミュレーターのすきを突く構築が出にくいように）
 function mutate(db, team, r, pool) {
-  const x = r();
-  if (x < 0.6) return swapMember(db, team, r, pool);
-  if (x < 0.85) return swapItem(db, team, r);
-  return swapMega(db, team, r);
+  return r() < 0.8 ? swapMember(db, team, r, pool) : swapMega(db, team, r);
 }
 
 // ---------- 探索 ----------
@@ -188,13 +169,14 @@ export function race(db, candidates, opponents, { battles = 1, keep = 4, seed = 
  * @returns { ranking: [{ team, envWinRate, margin, games, weakEnv, fromSuggestion }], team, winRate, baseline, ... }
  */
 export function searchBest(db, { opponents: nOpp = 400, searchOpponents = 60, battles = 4, iterations = 800, candidates: nCand = 64,
-  raceBattles = 1, keep = 4, pool: nPool = 80, patience = 60, seed = 1, extra = [], log = () => {} } = {}) {
+  raceBattles = 1, keep = 4, pool: nPool = 50, patience = 60, seed = 1, extra = [], log = () => {} } = {}) {
   const pool = topMeta(db, nPool).filter((id) => db.usage[id]);
   const prep = (list) => list.map((o) => ({ ...o, picksVs: new Map(), picksMine: new Map() }));
   // extra：相手に加える構築 [{ team, weight }]（見つけた構築を相手に加えて、相手の側も強くしていくとき）
   const opponents = prep([...buildOpponents(db, { n: nOpp, seed }), ...extra]);
   // 初期値：今の提案の結果（一番の構築と、おまかせの上位）
-  const starts = suggestTeams(db, [], { pool: 100, threats: 60, beam: 48, results: 5 })
+  // 候補に入れるポケモンは、そのルールの使用率の上位 nPool 体に限る
+  const starts = suggestTeams(db, [], { pool: nPool, threats: 60, beam: 48, results: 5 })
     .map((s) => fixItems(db, s.team.filter(Boolean)))
     .filter((t) => validTeam(db, t));
   // 1. 安い評価で探す（相手の構築群の一部）
@@ -226,7 +208,7 @@ export function searchBest(db, { opponents: nOpp = 400, searchOpponents = 60, ba
 }
 
 // 複数のシードの結果の上位をまとめ、もう一度ふるい落としで比べる（Actions で、シードごとに分けて計算したあと）
-export function finalRace(db, teams, { opponents: nOpp = 400, raceBattles = 2, keep = 4, seed = 99, log = () => {} } = {}) {
+export function finalRace(db, teams, { opponents: nOpp = 400, raceBattles = 8, keep = 4, seed = 99, log = () => {} } = {}) {
   const opponents = buildOpponents(db, { n: nOpp, seed }).map((o) => ({ ...o, picksVs: new Map(), picksMine: new Map() }));
   const uniq = [];
   for (const t of teams) if (!uniq.some((x) => teamKey(x) === teamKey(t))) uniq.push(t);
