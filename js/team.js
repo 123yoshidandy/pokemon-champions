@@ -58,9 +58,16 @@ export function defaultMember(db, id, team = [], { noMega = false } = {}) {
   // メガストーンを持てないときは、採用率の低すぎる持ち物には落とさない（なければ、残りの一番目）
   const fallback = megaTaken && u.items.some(([i]) => isMegaStone(db, id, i));
   const item = ((fallback && usable.find(([, p]) => (p ?? 0) >= FALLBACK_ITEM_MIN_PCT)) || usable[0])?.[0] ?? '';
+  return memberWithItem(db, id, item) ?? memberWithItem(db, id, '');
+}
+
+// 持ち物を決めた型（技・性格・能力ポイント・特性を持ち物に合わせる）。持ち物に合う技がそろわなければ null
+export function memberWithItem(db, id, item) {
+  const u = usageOf(db, id);
+  const moves = movesForItem(db, u, item);
+  if (!moves) return null;
   const form = battleForm(db, id, item);
   const ability = form?.mega ? form.abilities[0] : u.abilities[0]?.[0] ?? form?.abilities[0] ?? '';
-  const moves = movesForItem(db, u, item) ?? [];
   const { nature, sp } = natureAndSpread(db, u, moves, item);
   return {
     id,
