@@ -29,6 +29,21 @@ const REDIRECT = new Set(['Follow Me', 'Rage Powder']);
 const SPREAD = new Set(['allAdjacentFoes', 'allAdjacent']);
 const CHOICE = new Set(['Choice Scarf', 'Choice Band', 'Choice Specs']);
 // ため技（はれ・あめならためない技）
+// 撃った次のターンは動けない技（はかいこうせんなど）
+const RECHARGE = new Set(['Hyper Beam', 'Giga Impact', 'Blast Burn', 'Frenzy Plant', 'Hydro Cannon', 'Rock Wrecker', 'Roar of Time', 'Prismatic Laser', 'Eternabeam', 'Meteor Assault']);
+// 1 回ごとに命中を判定し、外れたところで止まる連続技
+const MULTI_ACC = new Set(['Population Bomb', 'Triple Axel', 'Triple Kick']);
+
+// 1 回ごとに命中を判定する連続技の、当たった回数（スキルリンクは全部当たる）
+function rollHits(st, m, mv, max) {
+  if (m.b.ability === 'Skill Link' || mv.acc == null) return max;
+  let n = 0;
+  while (n < max && st.r() * 100 < mv.acc * (m.item === 'Wide Lens' ? 1.1 : 1)) n++;
+  return n;
+}
+// その平均（行動を選ぶとき）
+const expectedHits = (mv, max) => { let e = 0; let p = 1; for (let k = 0; k < max; k++) { p *= Math.min(1, (mv.acc ?? 100) / 100); e += p; } return e; };
+
 const CHARGE = { 'Solar Beam': 'sun', 'Solar Blade': 'sun', 'Electro Shot': 'rain', 'Meteor Beam': null, 'Sky Attack': null };
 // 相手の能力を必ず下げる技 [能力, 段階]
 const FOE_DROP = {
@@ -79,7 +94,7 @@ function makeMon(db, member, side) {
     boosts: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
     lock: null, charging: null, protectStreak: 0, turnsOut: 0, fainted: false,
     // 状態異常（slp・brn・par）と、ねむりの残りターン、あくび、ちょうはつの残りターン
-    status: null, sleep: 0, yawn: 0, taunt: 0,
+    status: null, sleep: 0, yawn: 0, taunt: 0, recharge: false,
   };
 }
 
@@ -110,6 +125,7 @@ function enter(st, m) {
   m.turnsOut = 0;
   m.lock = null;
   m.charging = null;
+  m.recharge = false;
   m.protectStreak = 0;
   m.taunt = 0;
   m.yawn = 0;
@@ -175,6 +191,10 @@ function expected(st, att, def, name, spread) {
   let avg = r.rolls.reduce((a, b) => a + b, 0) / r.rolls.length;
   avg *= (mv.acc ?? 100) / 100;
   if (name in CHARGE && !(CHARGE[name] && CHARGE[name] === st.weather) && att.item !== 'Power Herb') avg /= 2;
+  // 1 回ごとに命中を判定する連続技は、当たる回数の平均で数える（上でかけた命中は、回数の平均に入っているので外す）
+  if (MULTI_ACC.has(name) && att.b.ability !== 'Skill Link') avg = (avg / r.hits) * expectedHits(mv, r.hits) / ((mv.acc ?? 100) / 100);
+  // 撃った次のターンは動けないので、2 ターンに 1 回とみなす
+  if (RECHARGE.has(name)) avg /= 2;
   return { avg, max: r.max };
 }
 
@@ -436,10 +456,15 @@ function useMove(st, m, act, ctx) {
     if (ctx.protected.has(t)) continue;
     // ワイドガードは、全体技を防ぐ
     if (spread && ctx.wideGuard[t.side]) continue;
-    if (mv.acc != null && st.r() * 100 >= mv.acc) continue;
+    // 連続技で 1 回ごとに命中を判定するものは、下で当たった回数を数える
+    if (!MULTI_ACC.has(name) && mv.acc != null && st.r() * 100 >= mv.acc) continue;
     const crit = st.r() < 1 / 24;
     const res = calcDamage(view(m), view(t), move, fieldFor(st, m, t, spread, crit, ctx.helping.has(m)));
     let d = res.rolls[Math.floor(st.r() * 16)];
+    if (MULTI_ACC.has(name)) {
+      const hits = rollHits(st, m, mv, res.hits);
+      d = Math.floor((d / res.hits) * hits);
+    }
     if (d <= 0) continue;
     // 半減の実
     if (RESIST_BERRY[t.item] === (res.eff > 1 ? move.type : null)) { d = Math.floor(d / 2); t.item = ''; }
@@ -450,6 +475,7 @@ function useMove(st, m, act, ctx) {
     }
     damage(t, d);
     dealt += d;
+    if (st.trace) st.trace.push(`    → ${t.side}:${t.name} に ${d}（残り ${t.hp}/${t.max}${crit ? '・急所' : ''}）`);
     // ねこだましでひるむ（まだ動いていなければ）
     if (name === 'Fake Out' && !ctx.moved.has(t) && t.b.ability !== 'Inner Focus') ctx.flinched.add(t);
     // 相手の能力を下げる追加効果
@@ -468,6 +494,8 @@ function useMove(st, m, act, ctx) {
     if (t.hp > 0 && t.hp <= t.max / 2 && t.item === 'Sitrus Berry') { t.hp = Math.min(t.max, t.hp + Math.floor(t.max / 4)); t.item = ''; }
     if (t.hp <= 0) faint(st, t);
   }
+  // はかいこうせんなどは、当たれば次のターンは動けない
+  if (RECHARGE.has(name) && dealt > 0) m.recharge = true;
   if (dealt > 0) {
     for (const [stat, n] of Object.entries(SELF_DROP[name] ?? {})) boost(m, stat, n);
     if (m.item === 'Life Orb' && m.b.ability !== 'Magic Guard') damage(m, Math.floor(m.max / 10));
@@ -482,6 +510,7 @@ function useMove(st, m, act, ctx) {
 
 function runTurn(st) {
   st.turn++;
+  if (st.trace) st.trace.push(`T${st.turn} 天気 ${st.weather ?? '-'} TR ${st.trickRoom} 追い風 ${st.sides.map((x) => x.tailwind).join('/')} | ${st.sides.map((x, i) => aliveActive(x).map((m) => `${i}:${m.name} ${m.hp}/${m.max}${m.status ? '(' + m.status + ')' : ''}`).join(', ')).join(' | ')}`);
   const acts = [];
   for (const side of st.sides) {
     for (const m of aliveActive(side)) {
@@ -495,6 +524,7 @@ function runTurn(st) {
   for (const { m, act } of acts) {
     if (m.fainted) continue;
     ctx.moved.add(m);
+    if (m.recharge) { m.recharge = false; if (st.trace) st.trace.push(`  ${m.side}:${m.name} は反動で動けない`); continue; }
     if (ctx.flinched.has(m)) { m.charging = null; continue; }
     // ねむり：残りのターンの間は動けず、0 になったら起きて動く。まひ：4 回に 1 回動けない
     if (m.status === 'slp' && act.type === 'move') {
@@ -502,6 +532,7 @@ function runTurn(st) {
       m.status = null;
     }
     if (m.status === 'par' && act.type === 'move' && st.r() < 0.25) continue;
+    if (st.trace) st.trace.push(`  ${m.side}:${m.name} ${act.type === 'switch' ? `交代 → ${act.to.name}` : act.move ?? '何もしない'}${act.target ? ` → ${act.target.side}:${act.target.name}` : ''}`);
     if (act.type === 'switch') { if (!act.to.fainted) switchIn(st, m.side, m, act.to); continue; }
     if (act.type === 'move') useMove(st, m, act, ctx);
     if (st.sides.some((s) => s.mons.every((x) => x.fainted))) break;
@@ -563,8 +594,10 @@ const remaining = (side) => side.mons.reduce((a, m) => a + (m.fainted ? 0 : m.hp
  * 1 試合。picks は [[先発..., 控え...], [...]]（選んだ順に並べた id）
  * @returns 1 = 0 側の勝ち、0 = 1 側の勝ち、0.5 = 引き分け
  */
-export function battle(db, teams, picks, seed) {
+// trace に配列を渡すと、試合の流れを書き込む（確かめるとき）
+export function battle(db, teams, picks, seed, trace = null) {
   const st = newBattle(db, teams, picks, seed);
+  st.trace = trace;
   while (st.turn < MAX_TURNS) {
     const out = st.sides.map((s) => s.mons.every((m) => m.fainted));
     if (out[0] || out[1]) return out[0] && out[1] ? 0.5 : out[1] ? 1 : 0;

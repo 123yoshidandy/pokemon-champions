@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { makeDB } from '../js/data.js';
 import { rng, battle, matchup, _internal } from '../js/sim.js';
 import { defaultMember } from '../js/team.js';
+import { calcDamage } from '../js/damage.js';
 
 const { newBattle, runTurn, chooseAction, speedOf } = _internal;
 
@@ -19,6 +20,8 @@ const MOVES = {
   'Helping Hand': { type: 'Normal', cat: 'Status', power: 0, acc: null, prio: 5, target: 'adjacentAlly' },
   'Wide Guard': { type: 'Rock', cat: 'Status', power: 0, acc: null, prio: 3, target: 'allySide' },
   'Swords Dance': { type: 'Normal', cat: 'Status', power: 0, acc: null, prio: 0, target: 'self' },
+  'Hyper Beam': { type: 'Normal', cat: 'Special', power: 150, acc: 100, prio: 0, target: 'normal' },
+  'Population Bomb': { type: 'Normal', cat: 'Physical', power: 20, acc: 90, prio: 0, target: 'normal', multihit: 10, contact: true },
   Spore: { type: 'Grass', cat: 'Status', power: 0, acc: 100, prio: 0, target: 'normal' },
   'Will-O-Wisp': { type: 'Fire', cat: 'Status', power: 0, acc: 100, prio: 0, target: 'normal' },
 };
@@ -147,6 +150,28 @@ describe('変化技', () => {
       if (st.sides[1].active.every((x) => x.hp === x.max)) blocked = true;
     }
     expect(blocked).toBe(true);
+  });
+});
+
+describe('反動と連続技', () => {
+  it('はかいこうせんを当てた次のターンは動けない', () => {
+    const db = tiny(false);
+    const st = start(db, [m('fast', ['Hyper Beam'])], [m('wall', ['Strike'])]);
+    runTurn(st);
+    const me = st.sides[0].mons[0];
+    expect(me.recharge).toBe(true);
+    const hp = st.sides[1].mons[0].hp;
+    runTurn(st);
+    expect(st.sides[1].mons[0].hp).toBe(hp);
+    expect(me.recharge).toBe(false);
+  });
+  it('ネズミざんは、外れたところで止まるので、10 回より少ないことが多い', () => {
+    const db = tiny(false);
+    const st = start(db, [m('fast', ['Population Bomb'])], [m('wall', ['Strike'])]);
+    const foe = st.sides[1].mons[0];
+    const full = calcDamage({ ...st.sides[0].mons[0].b, boosts: {} }, { ...foe.b, boosts: {} }, { name: 'Population Bomb', ...MOVES['Population Bomb'] }, {}).max;
+    const avg = _internal.expected(st, st.sides[0].mons[0], foe, 'Population Bomb', false).avg;
+    expect(avg).toBeLessThan(full * 0.7);
   });
 });
 
