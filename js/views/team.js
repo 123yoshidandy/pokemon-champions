@@ -1,5 +1,5 @@
 // 構築（6体の編集と、環境への相性・相方の提案・タイプ相性・すばやさ）
-import { h, mount, typeBadges, typeBadge, icon, iconButton, pokemonCombo, nameCombo, toast, scoreClass } from '../ui.js';
+import { h, mount, typeBadges, typeBadge, icon, iconButton, pokemonCombo, nameCombo, toast, scoreClass, scoreMark, duelDamage, DUEL_LEGEND } from '../ui.js';
 import { jaPokemon, jaItem, jaAbility, jaMove, jaNature, usageOf, allUsed, battleForm, isMegaStone, moveData } from '../data.js';
 import { STATS, STAT_JA, NATURES, SP_TOTAL, SP_MAX, validateSpread } from '../stats.js';
 import { TYPE_JA } from '../types.js';
@@ -374,16 +374,14 @@ function threatsView(app, battlers, root) {
               class: `mu-cell ${scoreClass(d.score)}`,
               title: `与 ${jaMove(db, d.a.move) ?? '-'} ${d.a.minPct.toFixed(0)}〜${d.a.maxPct.toFixed(0)}% / 被 ${jaMove(db, d.b.move) ?? '-'} ${d.b.minPct.toFixed(0)}〜${d.b.maxPct.toFixed(0)}% / S ${d.speedA} vs ${d.speedB}`,
             },
-            h('span', { class: 'mu-mark' }, mark(d.score)),
-            h('span', { class: 'mu-dmg' }, `${d.a.avgPct.toFixed(0)}/${d.b.avgPct.toFixed(0)}`))),
+            h('span', { class: 'mu-mark' }, scoreMark(d.score)),
+            h('span', { class: 'mu-dmg' }, duelDamage(d)))),
           ))),
       ),
     ),
-    h('p', { class: 'muted small' }, '◎○ 有利・△ 互角・▲× 不利。数字は「与えるダメージ / 受けるダメージ」（平均の%）。'),
+    h('p', { class: 'muted small' }, DUEL_LEGEND),
   );
 }
-
-const mark = (s) => (s >= 0.75 ? '◎' : s > 0 ? '○' : s === 0 ? '△' : s > -0.75 ? '▲' : '×');
 
 function matesView(app, team, set) {
   const db = app.db;

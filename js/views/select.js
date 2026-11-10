@@ -1,5 +1,5 @@
 // 選出（相手の6体に対して、選ぶメンバーと先発を提案する）
-import { h, mount, typeBadges, pokemonCombo, iconButton, scoreClass } from '../ui.js';
+import { h, mount, typeBadges, pokemonCombo, iconButton, scoreClass, scoreMark, duelDamage, DUEL_LEGEND } from '../ui.js';
 import { jaPokemon, jaItem, jaAbility, jaMove } from '../data.js';
 import { selectionPlan, metaBattler } from '../analysis.js';
 import * as store from '../store.js';
@@ -67,7 +67,6 @@ function plans(db, r) {
 }
 
 function matrix(db, r) {
-  const mark = (s) => (s >= 0.75 ? '◎' : s > 0 ? '○' : s === 0 ? '△' : s > -0.75 ? '▲' : '×');
   return h('section', { class: 'card' },
     h('h2', {}, '対面表'),
     h('div', { class: 'table-wrap' },
@@ -78,10 +77,11 @@ function matrix(db, r) {
           r.matrix[i].map((d) => h('td', {
             class: `mu-cell ${scoreClass(d.score)}`,
             title: `与 ${jaMove(db, d.a.move) ?? '-'} ${d.a.minPct.toFixed(0)}〜${d.a.maxPct.toFixed(0)}% / 被 ${jaMove(db, d.b.move) ?? '-'} ${d.b.minPct.toFixed(0)}〜${d.b.maxPct.toFixed(0)}%`,
-          }, h('span', { class: 'mu-mark' }, mark(d.score)), h('span', { class: 'mu-dmg' }, `${d.a.avgPct.toFixed(0)}/${d.b.avgPct.toFixed(0)}`))),
+          }, h('span', { class: 'mu-mark' }, scoreMark(d.score)), h('span', { class: 'mu-dmg' }, duelDamage(d)))),
         ))),
       ),
     ),
+    h('p', { class: 'muted small' }, DUEL_LEGEND),
   );
 }
 

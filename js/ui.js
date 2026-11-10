@@ -154,6 +154,14 @@ export function toast(msg) {
 
 export const fmtPct = (v, d = 0) => `${v.toFixed(d)}%`;
 
+// 対面の有利さを印にする（◎ は、勝ったあとに HP が 7 割ほど残る）
+export const scoreMark = (s) => (s >= 0.75 ? '◎' : s > 0 ? '○' : s === 0 ? '△' : s > -0.75 ? '▲' : '×');
+
+// 対面表のマスの数字（1発で与える・受けるダメージ）
+export const duelDamage = (d) => `与${d.a.avgPct.toFixed(0)} 被${d.b.avgPct.toFixed(0)}`;
+
+export const DUEL_LEGEND = 'お互いに一番通る技で殴り合ったときの勝ち負け。◎ 余裕をもって勝つ・○ 勝つ・△ 互角・▲ 負ける・× 大きく負ける。数字は1発で与える・受けるダメージ（相手・自分の HP に対する平均の%）。';
+
 // 対面の有利さを色の段階にする
 export function scoreClass(s) {
   if (s >= 0.75) return 's-good2';

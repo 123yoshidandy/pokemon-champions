@@ -33,37 +33,140 @@ export const rankWeight = (pos) => 1 / Math.sqrt(pos || 50);
 
 // ---------- 打点 ----------
 
-// 一番通る技（命中も考えた平均ダメージ%で比べる）
-export function bestHit(db, att, def, field = {}) {
+const NO_HIT = { move: null, avgPct: 0, minPct: 0, maxPct: 0, ko: { n: Infinity, chance: 0 }, eff: 0 };
+
+// 一番通る技（命中も考えた平均ダメージ%で比べる）。filter で候補の技を絞れる
+export function bestHit(db, att, def, field = {}, filter = null) {
   let best = null;
   for (const name of att.moves) {
     const mv = moveData(db, name);
-    if (!isAttack(mv)) continue;
+    if (!isAttack(mv) || (filter && !filter(name, mv))) continue;
     const r = calcDamage(att, def, { name, ...mv }, { doubles: db.doubles, ...field });
     const avg = ((r.minPct + r.maxPct) / 2) * ((mv.acc ?? 100) / 100);
     if (!best || avg > best.avgPct) best = { move: name, avgPct: avg, minPct: r.minPct, maxPct: r.maxPct, ko: r.ko, eff: r.eff };
   }
-  return best ?? { move: null, avgPct: 0, minPct: 0, maxPct: 0, ko: { n: Infinity, chance: 0 }, eff: 0 };
+  return best ?? NO_HIT;
 }
-
-const turnsToKO = (hit) => (hit.avgPct > 0 ? Math.min(9, Math.ceil(100 / hit.avgPct)) : 9);
 
 const speedOf = (b) => Math.floor(b.stats[5] * (b.item === 'Choice Scarf' ? 1.5 : 1));
 
-// a から見た対面の有利さ（-1〜1）
-export function duel(db, a, b) {
-  const ha = bestHit(db, a, b);
-  const hb = bestHit(db, b, a);
-  const ta = turnsToKO(ha);
-  const tb = turnsToKO(hb);
-  const sa = speedOf(a);
+// HP が満タンのときだけ、受けるダメージを半分にする特性
+const FULL_HP_GUARD = new Set(['Multiscale', 'Shadow Shield']);
+// いかくで、こうげきが下がらない特性
+const INTIMIDATE_IMMUNE = new Set(['Clear Body', 'White Smoke', 'Full Metal Body', 'Hyper Cutter', 'Inner Focus', 'Oblivious', 'Own Tempo', 'Scrappy', 'Mirror Armor', 'Guard Dog']);
+// 外したときだけ反動を受ける技（反動の印が付いているが、当たったときは受けない）
+const CRASH_MOVES = new Set(['High Jump Kick', 'Jump Kick', 'Supercell Slam', 'Axe Kick']);
+// これだけ殴り合っても決着しなければ、互角とする
+const MAX_TURNS = 10;
+
+// いかくを受けた後の形（まけんきは、こうげきが上がる。かちきは、とくこうが上がる）
+export function intimidated(b) {
+  if (INTIMIDATE_IMMUNE.has(b.ability)) return b;
+  const boosts = { ...b.boosts, atk: (b.boosts?.atk ?? 0) - 1 };
+  if (b.ability === 'Defiant') boosts.atk += 2;
+  if (b.ability === 'Competitive') boosts.spa = (boosts.spa ?? 0) + 2;
+  return { ...b, boosts };
+}
+
+// 1回攻撃したときに、自分が受ける反動（自分の最大HPに対する%）
+function recoilPct(db, att, def, hit) {
+  if (!hit.move || hit.avgPct <= 0 || att.ability === 'Magic Guard') return 0;
+  const mv = moveData(db, hit.move);
+  let r = 0;
+  if (att.item === 'Life Orb' && !(att.ability === 'Sheer Force' && mv.secondary)) r += 10;
+  if (mv.contact && att.item !== 'Protective Pads') {
+    if (def.item === 'Rocky Helmet') r += 100 / 6;
+    if (def.ability === 'Rough Skin' || def.ability === 'Iron Barbs') r += 12.5;
+  }
+  if (mv.recoil && !CRASH_MOVES.has(hit.move) && att.ability !== 'Rock Head') {
+    r += (hit.avgPct * def.stats[0]) / att.stats[0] * (hit.move === 'Head Smash' ? 0.5 : 1 / 3);
+  }
+  return r;
+}
+
+// 相手の HP が満タンのとき（first）と、減ったあと（later）の打点。マルチスケイルなどは満タンのときだけ効く
+function hitPair(db, att, def, field, filter) {
+  const first = bestHit(db, att, def, field, filter);
+  const later = FULL_HP_GUARD.has(def.ability) ? bestHit(db, att, { ...def, hpPct: 99 }, field, filter) : first;
+  return {
+    first: { ...first, recoil: recoilPct(db, att, def, first) },
+    later: { ...later, recoil: recoilPct(db, att, def, later) },
+  };
+}
+
+// 攻撃の手段: いつもの技と、先制技（倒しきれるときに使う。ねこだましは除く）
+function attackPlan(db, att, def, field) {
+  const main = hitPair(db, att, def, field);
+  const prio = hitPair(db, att, def, field, (name, mv) => mv.prio > 0 && name !== 'Fake Out');
+  return { main, prio: prio.first.move ? prio : null };
+}
+
+// 交互に殴り合い、最後に立っている方と、その残りHPを返す。xFirst: 同じ優先度なら x が先に動く
+function exchange(x, y, xFirst) {
+  const hp = [100, 100];
+  const plans = [x, y];
+  let turn = 0;
+  for (; turn < MAX_TURNS; turn++) {
+    const acts = [];
+    for (const i of [0, 1]) {
+      if (turn === 0 && plans[i].skipFirst) continue;
+      const { main, prio } = plans[i];
+      const now = (pair) => (hp[1 - i] >= 100 ? pair.first : pair.later);
+      // 先制技で倒しきれるなら、先制技を使う
+      if (prio && now(prio).avgPct >= hp[1 - i]) acts.push({ i, pair: prio, pri: 1 });
+      else acts.push({ i, pair: main, pri: 0 });
+    }
+    acts.sort((a, b) => b.pri - a.pri || (a.i === (xFirst ? 0 : 1) ? -1 : 1));
+    for (const act of acts) {
+      if (hp[act.i] <= 0) continue;
+      const foe = 1 - act.i;
+      // 先に動いた攻撃で HP が減っていれば、マルチスケイルは切れている
+      const hit = hp[foe] >= 100 ? act.pair.first : act.pair.later;
+      hp[foe] -= hit.avgPct;
+      if (hit.avgPct > 0) hp[act.i] -= hit.recoil;
+      if (hp[0] <= 0 || hp[1] <= 0) break;
+    }
+    if (hp[0] <= 0 || hp[1] <= 0) break;
+  }
+  return { hp, turns: turn + 1 };
+}
+
+const resultScore = ([hx, hy]) => {
+  if (hx > 0 && hy <= 0) return 0.2 + 0.8 * Math.min(100, hx) / 100;
+  if (hy > 0 && hx <= 0) return -(0.2 + 0.8 * Math.min(100, hy) / 100);
+  return 0;
+};
+
+/**
+ * a から見た対面の有利さ（-1〜1）。お互いに一番通る技で殴り合い、勝った方の残りHPが多いほど大きくする
+ * （勝っても残りHPがわずかなら 0.2 に近く、無傷で勝てば 1）
+ * @param opts 味方の支援 { tailwind, trickRoom, reflect, lightScreen, intimidate, fakeOut }
+ *   tailwind: a のすばやさが 2 倍 / trickRoom: 遅い方が先に動く / reflect・lightScreen: a が受けるダメージが減る
+ *   intimidate: b のこうげきが 1 段階下がる / fakeOut: b は 1 ターン目に動けない
+ */
+export function duel(db, a, b, opts = {}) {
+  // お互いの特性のいかく（場に出たときに相手に効く）
+  const A = b.ability === 'Intimidate' ? intimidated(a) : a;
+  const B = a.ability === 'Intimidate' || opts.intimidate ? intimidated(b) : b;
+  const ha = attackPlan(db, A, B, {});
+  const hb = { ...attackPlan(db, B, A, { reflect: opts.reflect, lightScreen: opts.lightScreen }), skipFirst: !!opts.fakeOut };
+  const sa = speedOf(a) * (opts.tailwind ? 2 : 1);
   const sb = speedOf(b);
-  const faster = sa > sb ? 1 : sa < sb ? -1 : 0;
+  const aFirst = opts.trickRoom ? sa < sb : sa > sb;
   let score;
-  if (ta < tb) score = Math.min(1, 0.5 + (tb - ta) * 0.25);
-  else if (ta > tb) score = -Math.min(1, 0.5 + (ta - tb) * 0.25);
-  else score = ta >= 9 ? 0 : faster * 0.5;
-  return { score, a: ha, b: hb, turnsA: ta, turnsB: tb, speedA: sa, speedB: sb };
+  let turns;
+  if (sa === sb) {
+    // 同速は、先に動く場合と後に動く場合の平均
+    const r1 = exchange(ha, hb, true);
+    const r2 = exchange(ha, hb, false);
+    score = (resultScore(r1.hp) + resultScore(r2.hp)) / 2;
+    turns = r1.turns;
+  } else {
+    const r = exchange(ha, hb, aFirst);
+    score = resultScore(r.hp);
+    turns = r.turns;
+  }
+  return { score, a: ha.main.first, b: hb.main.first, turns, speedA: sa, speedB: sb, aFirst };
 }
 
 // ---------- タイプ相性 ----------

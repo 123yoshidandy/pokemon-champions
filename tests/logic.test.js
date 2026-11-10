@@ -121,6 +121,44 @@ describe('構築', () => {
   });
 });
 
+describe('対面', () => {
+  // 技を絞った小さな db と、能力だけを決めたポケモンで比べる
+  const db = { doubles: false, moves: {
+    Strike: { type: 'Normal', cat: 'Physical', power: 80, acc: 100, prio: 0, target: 'normal' },
+    Quick: { type: 'Normal', cat: 'Physical', power: 40, acc: 100, prio: 1, target: 'normal' },
+  } };
+  const p = (o = {}, spe = 100) => ({ id: 'x', types: ['Water'], stats: [170, 130, 100, 100, 100, spe], ability: '', item: '', moves: ['Strike'], boosts: {}, ...o });
+
+  it('同じ打点で先に動けるだけなら、大きな有利にはしない', () => {
+    const d = duel(db, p({}, 101), p());
+    expect(d.score).toBeGreaterThan(0);
+    expect(d.score).toBeLessThan(0.75);
+  });
+  it('マルチスケイルは、HP が満タンのときだけ効く', () => {
+    // 毎回半分なら 8 発かかるところ、2 発目からは等倍なので 4 発で倒れ、先に 4 発当てた方が勝つ
+    const d = duel(db, p(), p({ ability: 'Multiscale' }, 99));
+    expect(d.b.avgPct).toBeGreaterThan(d.a.avgPct);
+    expect(d.score).toBeLessThan(0);
+    expect(d.score).toBeGreaterThan(-0.5);
+  });
+  it('いのちのたまの反動で、自分のマルチスケイルが切れる', () => {
+    const plain = duel(db, p(), p({ ability: 'Multiscale' }, 99)).score;
+    const orb = duel(db, p(), p({ ability: 'Multiscale', item: 'Life Orb' }, 99)).score;
+    expect(orb).toBeGreaterThan(plain);
+  });
+  it('遅くても、先制技で倒しきれるなら先に倒す', () => {
+    const strong = (o) => p({ stats: [170, 160, 100, 100, 100, 99], ...o });
+    expect(duel(db, strong({ moves: ['Strike', 'Quick'] }), p({}, 100)).score).toBeGreaterThan(duel(db, strong(), p({}, 100)).score);
+  });
+  it('おいかぜ・トリックルーム・ねこだましで、先に動ける', () => {
+    const slow = p({}, 99);
+    expect(duel(db, slow, p()).score).toBeLessThan(0);
+    expect(duel(db, slow, p(), { tailwind: true }).score).toBeGreaterThan(0);
+    expect(duel(db, slow, p(), { trickRoom: true }).score).toBeGreaterThan(0);
+    expect(duel(db, slow, p(), { fakeOut: true }).score).toBeGreaterThan(0);
+  });
+});
+
 describe('分析', () => {
   const team = normalizeTeam(['garchomp', 'incineroar', 'rillaboom', 'whimsicott'].map((id) => defaultMember(doubles, id)));
   const battlers = team.map((m) => m && memberBattler(doubles, m));
