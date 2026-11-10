@@ -1,7 +1,7 @@
 // 環境（使用率の順位）
 import { h, mount, typeBadges, typeBadge, iconButton, bar } from '../ui.js';
 import { jaPokemon, jaItem, usageOf, isMegaStone, battleForm, moveData, toKatakana } from '../data.js';
-import { metaBattler, trendAttackType, typeReach, TREND_MIN_POWER } from '../analysis.js';
+import { metaBattler, trendAttackType, typeReach, speedList, TREND_MIN_POWER } from '../analysis.js';
 import { TYPES, TYPE_JA } from '../types.js';
 import { addToTeam, dataDate, formatLabel, getTopN, topNSelect } from './common.js';
 import * as store from '../store.js';
@@ -133,6 +133,29 @@ function trendGrid(db, n) {
         sorted(atkType).slice(0, 8).map(([t, v]) => bar((v / maxAtk) * 100, TYPE_JA[t], null, '')),
       ),
       reach(db, n),
+      speedLines(db, n),
+  );
+}
+
+// すばやさライン（よく使われる性格と能力ポイントで計算。同じ値は1行にまとめる）
+function speedLines(db, n) {
+  const rows = speedList(db, [], n);
+  const max = rows[0]?.speed ?? 1;
+  const groups = [];
+  for (const r of rows) {
+    if (groups.at(-1)?.speed === r.speed) groups.at(-1).list.push(r);
+    else groups.push({ speed: r.speed, list: [r] });
+  }
+  return h('div', {},
+    h('h3', {}, 'すばやさライン'),
+    h('p', { class: 'muted small' }, 'よく使われる性格と能力ポイントで計算。こだわりスカーフは1.5倍'),
+    h('ol', { class: 'speed-lines' }, groups.map((g) =>
+      h('li', {},
+        h('span', { class: 'num speed' }, g.speed),
+        h('span', { class: 'speed-names' },
+          h('span', { class: 'speed-bar', style: { width: `${(g.speed / max) * 100}%` } }),
+          g.list.map((r) => h('a', { href: `#/p/${r.id}` }, jaPokemon(db, r.title), r.scarf ? h('span', { class: 'tag' }, 'スカーフ') : null))),
+      ))),
   );
 }
 
