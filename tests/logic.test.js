@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { effectiveness, effectivenessWithAbility, defenseProfile } from '../js/types.js';
-import { calcStats, speedTiers, validateSpread } from '../js/stats.js';
+import { calcStats, speedTiers, validateSpread, groupSpreads } from '../js/stats.js';
 import { calcDamage, koChance, koLabel } from '../js/damage.js';
 import { makeDB, megaForItem, battleForm, searchPokemon, searchNames, toKatakana, jaPokemon } from '../js/data.js';
 import { defaultMember, memberBattler, encodeTeam, decodeTeam, toShowdown, fromShowdown, normalizeTeam } from '../js/team.js';
@@ -34,6 +34,11 @@ describe('実数値', () => {
   });
   it('すばやさの目安', () => {
     expect(speedTiers(122)).toEqual({ fastest: 169, fast: 154, neutral: 122, slowest: 109 });
+  });
+  it('能力ポイントの配分を、振った能力の組み合わせでまとめる', () => {
+    const g = groupSpreads([[30, [32, 32, 2, 0, 0, 0]], [20, [32, 2, 32, 0, 0, 0]], [10, [32, 32, 0, 0, 2, 0]]]);
+    expect(g.map((x) => [x.key, x.pct])).toEqual([['HA', 40], ['HB', 20]]);
+    expect(g[0].spreads[0][1]).toEqual([32, 32, 2, 0, 0, 0]);
   });
   it('能力ポイントの上限', () => {
     expect(validateSpread([32, 32, 2, 0, 0, 0]).ok).toBe(true);

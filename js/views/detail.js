@@ -1,7 +1,7 @@
 // ポケモンの詳細（採用データ・相性・対面）
 import { h, mount, typeBadges, typeBadge, bar, iconButton, scoreClass } from '../ui.js';
 import { jaPokemon, jaItem, jaAbility, jaMove, jaNature, usageOf, rankHistory, moveData } from '../data.js';
-import { STATS, STAT_JA, STAT_LONG_JA, speedTiers } from '../stats.js';
+import { STATS, STAT_JA, STAT_LONG_JA, speedTiers, groupSpreads, SPREAD_MAIN_MIN } from '../stats.js';
 import { defenseProfile, TYPES } from '../types.js';
 import { metaBattler, duel, topMeta } from '../analysis.js';
 import { addToTeam, getTopN, topNSelect } from './common.js';
@@ -69,8 +69,8 @@ export function renderDetail(app, root, id) {
       ),
       h('section', { class: 'card' },
         h('h2', {}, '能力ポイント'),
-        h('p', { class: 'muted small' }, 'H-A-B-C-D-S'),
-        u.spreads.slice(0, 8).map(([p, sp]) => bar(p, sp.join('-'))),
+        h('p', { class: 'muted small' }, `振った能力（${SPREAD_MAIN_MIN}ポイント以上）でまとめています。右は一番多い配分（H-A-B-C-D-S）`),
+        groupSpreads(u.spreads).slice(0, 6).map((g) => bar(g.pct, g.key, g.spreads[0][1].join('-'))),
       ),
     ),
     h('section', { class: 'card' },

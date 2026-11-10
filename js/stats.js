@@ -48,6 +48,23 @@ export function speedTiers(baseSpe) {
   };
 }
 
+// これ以上振った能力を「振った能力」とみなす（合計66の余りの 2〜3 ポイントは数えない）
+export const SPREAD_MAIN_MIN = 4;
+
+// 能力ポイントの配分を、振った能力の組み合わせ（HA・CS など）でまとめる。spreads は [採用率, sp] の配列
+// 戻り値は [{ key, pct, spreads }]（採用率の多い順。spreads は組の中の配分で、多い順）
+export function groupSpreads(spreads) {
+  const groups = new Map();
+  for (const [pct, sp] of spreads) {
+    const key = STATS.filter((_, i) => sp[i] >= SPREAD_MAIN_MIN).map((s) => STAT_JA[s]).join('') || '無振り';
+    if (!groups.has(key)) groups.set(key, { key, pct: 0, spreads: [] });
+    const g = groups.get(key);
+    g.pct += pct ?? 0;
+    g.spreads.push([pct, sp]);
+  }
+  return [...groups.values()].sort((a, b) => b.pct - a.pct);
+}
+
 export function validateSpread(sp) {
   const total = sp.reduce((a, b) => a + (b || 0), 0);
   return { total, ok: total <= SP_TOTAL && sp.every((v) => v >= 0 && v <= SP_MAX) };
