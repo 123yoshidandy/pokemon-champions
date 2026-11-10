@@ -40,7 +40,7 @@ export const rankWeight = (pos) => 1 / Math.sqrt(pos || 50);
 // 1 ターン目にためて、2 ターン目に攻撃する技
 const CHARGE_MOVES = new Set(['Solar Beam', 'Solar Blade', 'Meteor Beam', 'Sky Attack', 'Skull Bash', 'Razor Wind', 'Freeze Shock', 'Ice Burn', 'Electro Shot']);
 // 場に出ると天気を変える特性
-const WEATHER_ABILITY = { Drought: 'sun', Drizzle: 'rain', 'Sand Stream': 'sand', 'Snow Warning': 'snow' };
+export const WEATHER_ABILITY = { Drought: 'sun', Drizzle: 'rain', 'Sand Stream': 'sand', 'Snow Warning': 'snow', 'Orichalcum Pulse': 'sun' };
 // 技が固定される持ち物
 const isChoice = (b) => ['Choice Scarf', 'Choice Band', 'Choice Specs'].includes(b.item);
 
@@ -190,6 +190,51 @@ export function duel(db, a, b, opts = {}) {
   return { score, a: ha.main.first, b: hb.main.first, turns, speedA: sa, speedB: sb, aFirst };
 }
 
+// ---------- 天気とフィールド（構築の中でぶつからないように） ----------
+
+// 場に出るとフィールドを張る特性
+export const TERRAIN_ABILITY = { 'Grassy Surge': 'grassy', 'Electric Surge': 'electric', 'Psychic Surge': 'psychic', 'Misty Surge': 'misty', 'Hadron Engine': 'electric' };
+export const WEATHER_JA = { sun: 'はれ', rain: 'あめ', sand: 'すなあらし', snow: 'ゆき', any: '天気' };
+// 天気に頼る特性・技（any は、どの天気でもよい）
+const NEEDS_WEATHER_ABILITY = { Chlorophyll: 'sun', 'Solar Power': 'sun', 'Flower Gift': 'sun', 'Swift Swim': 'rain', 'Rain Dish': 'rain', 'Sand Rush': 'sand', 'Sand Force': 'sand', 'Slush Rush': 'snow', 'Ice Body': 'snow' };
+const NEEDS_WEATHER_MOVE = { 'Solar Beam': 'sun', 'Solar Blade': 'sun', 'Aurora Veil': 'snow', 'Weather Ball': 'any' };
+
+// 構築の天気・フィールドを起こすポケモンの、天気とフィールドの一覧（メガシンカ後の特性も見る）
+export function fieldSetters(battlers) {
+  const live = battlers.filter(Boolean);
+  return {
+    weathers: [...new Set(live.map((b) => WEATHER_ABILITY[b.ability]).filter(Boolean))],
+    terrains: [...new Set(live.map((b) => TERRAIN_ABILITY[b.ability]).filter(Boolean))],
+  };
+}
+
+// 違う天気どうし、違うフィールドどうしが、同じ構築にいるか
+export function fieldClash(battlers) {
+  const f = fieldSetters(battlers);
+  return f.weathers.length > 1 || f.terrains.length > 1;
+}
+
+// 天気に頼るのに、構築の天気と合わないメンバー [{ id, need, why }]
+export function weatherMisfits(battlers) {
+  const live = battlers.filter(Boolean);
+  const have = fieldSetters(live).weathers;
+  const out = [];
+  for (const b of live) {
+    let need = NEEDS_WEATHER_ABILITY[b.ability];
+    let why = b.ability;
+    // こだいかっせいは、ブーストエナジーがなければ、はれに頼る
+    if (b.ability === 'Protosynthesis' && b.item !== 'Booster Energy') [need, why] = ['sun', b.ability];
+    if (!need) {
+      const m = b.moves.find((x) => NEEDS_WEATHER_MOVE[x]);
+      if (m) [need, why] = [NEEDS_WEATHER_MOVE[m], m];
+    }
+    if (!need) continue;
+    const ok = need === 'any' ? have.length > 0 : have.includes(need);
+    if (!ok) out.push({ id: b.id, need, why });
+  }
+  return out;
+}
+
 // ---------- 味方の支援（ダブル） ----------
 
 export const SUPPORT_LABEL = {
@@ -318,6 +363,8 @@ export function suggestTeammates(db, team, { pool = 100, threats = 40, limit = 1
     if (inTeam.has(db.dex[id]?.base)) continue;
     // 構築に入れるときと同じ型（持ち物を重ねない・メガストーンは1体だけ）で比べる
     const cm = defaultMember(db, id, team.filter(Boolean));
+    // いまの構築の天気・フィールドとぶつかる起こし役は出さない
+    if (fieldClash([...members, memberBattler(db, cm)])) continue;
     // メガシンカの型でしか使われていない種族は、メガストーンを持てないなら出さない（メガシンカバトルは除く）
     if (!db.megaRule && !isMegaStone(db, id, cm.item) && megaStoneShare(db, id) >= MEGA_ONLY_SHARE) continue;
     const c = memberBattler(db, cm);
@@ -338,7 +385,9 @@ export function suggestTeammates(db, team, { pool = 100, threats = 40, limit = 1
     const adds = TYPES.filter((t) => prof[t] > 1 && !holes.includes(t) && def.find((r) => r.type === t)?.weak >= 2);
     const co = teammateScore(id);
     // 重み: 勝てる相手が増えること > 弱点の補完 > 一緒に使われる度合い・人気
-    const score = gain * 1.5 + covers.length * 0.3 - adds.length * 0.3 + co * 0.15 + rankWeight(db.rankOf.get(id)?.pos) * 0.5;
+    // 天気が合わない候補は減点する
+    const misfit = weatherMisfits([...members, c]).some((x) => x.id === id);
+    const score = gain * 1.5 + covers.length * 0.3 - adds.length * 0.3 + co * 0.15 + rankWeight(db.rankOf.get(id)?.pos) * 0.5 - (misfit ? 0.5 : 0);
     results.push({ id, battler: c, score, gain, newAnswers, covers, adds, co, paired: pairedWith(id) });
   }
   return results.sort((a, b) => b.score - a.score).slice(0, limit);

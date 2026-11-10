@@ -496,6 +496,10 @@ select.top-n { padding: 4px 8px; }
 @media (min-width: 760px) { .suggest-members { grid-template-columns: repeat(3, 1fr); } }
 .suggest-mon { display: flex; flex-direction: column; gap: 2px; background: var(--card2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; text-decoration: none; min-width: 0; }
 .suggest-mon .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 長い名前（メガリザードンY など）を 1 行に収める */
+.suggest-mon-head { gap: 2px; }
+.suggest-mon-head .slot-name { font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.suggest-mon-head .poke-icon { width: 28px; height: 28px; margin: -4px -2px -4px -4px; }
 .suggest .reasons { margin-top: 8px; }
 
 /* ---------- 選出 ---------- */

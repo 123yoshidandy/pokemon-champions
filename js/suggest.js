@@ -4,7 +4,7 @@
 import { TYPES, defenseProfile } from './types.js';
 import { usageOf, isMegaStone, moveData, isAttack } from './data.js';
 import { defaultMember, memberBattler, normalizeTeam, megaStoneShare, MEGA_ONLY_SHARE, TEAM_SIZE } from './team.js';
-import { duel, topMeta, rankWeight, teamSupport, supportNames } from './analysis.js';
+import { duel, topMeta, rankWeight, teamSupport, supportNames, fieldClash, weatherMisfits } from './analysis.js';
 
 // ---------- スタイル ----------
 
@@ -181,6 +181,9 @@ function prepare(db, ids, threats, style = '') {
 
 // ---------- 点数 ----------
 
+// 天気に頼るのに、構築の天気と合わないメンバー1体あたりの減点
+const MISFIT_PENALTY = 0.08;
+
 function evaluate(db, team, ctx) {
   const { threats, weights, wsum, style } = ctx;
   // 上位の相手への有利さ（一番有利なメンバー + 2番手を少し）
@@ -240,8 +243,10 @@ function evaluate(db, team, ctx) {
   const reuse = ctx.used ? team.reduce((a, c) => a + (ctx.used.get(c.id) ?? 0), 0) * 0.04 : 0;
 
   const popularity = team.reduce((a, c) => a + rankWeight(db.rankOf.get(c.id)?.pos), 0) * 0.01;
-  const base = cover - defense + Math.min(pairs.length, 5) * 0.02 + styleBonus + popularity;
-  return { score: base - reuse, base, cover, holes, stacked, pairs, styleBonus, support: supportNames(sup) };
+  // 天気に頼るのに、構築の天気と合わないメンバー
+  const misfits = weatherMisfits(team.map((c) => c.battler));
+  const base = cover - defense + Math.min(pairs.length, 5) * 0.02 + styleBonus + popularity - misfits.length * MISFIT_PENALTY;
+  return { score: base - reuse, base, cover, holes, stacked, pairs, styleBonus, support: supportNames(sup), misfits };
 }
 
 // ---------- 探索 ----------
@@ -275,7 +280,7 @@ export function suggestTeams(db, axis = [], { pool = 60, threats: threatN = 40, 
   }
   let states = [start];
   if (style && !start.some((c) => isSetter(c.battler, style))) {
-    const setters = [...cands.keys()].filter((id) => !sameBase(start, id)).map((id) => variantFor(id, start)).filter((v) => v && isSetter(v.battler, style));
+    const setters = [...cands.keys()].filter((id) => !sameBase(start, id)).map((id) => variantFor(id, start)).filter((v) => v && isSetter(v.battler, style) && !fieldClash([...start, v].map((c) => c.battler)));
     if (setters.length) states = setters.map((v) => [...start, v]);
   }
 
@@ -289,6 +294,8 @@ export function suggestTeams(db, axis = [], { pool = 60, threats: threatN = 40, 
           const v = variantFor(id, team);
           if (!v) continue;
           const t = [...team, v];
+          // 違う天気どうし・違うフィールドどうしは、同じ構築に入れない
+          if (fieldClash(t.map((c) => c.battler))) continue;
           const k = key(t);
           if (!next.has(k)) next.set(k, { team: t, ev: evaluate(db, t, ctx) });
         }

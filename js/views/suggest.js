@@ -1,7 +1,7 @@
 // おすすめの構築（環境データから6体を提案する）
 import { h, mount, typeBadges, typeBadge, pokemonCombo, iconButton, icon, toast, pokeIcon } from '../ui.js';
 import { jaPokemon, jaItem, jaMove } from '../data.js';
-import { basicPlan } from '../analysis.js';
+import { basicPlan, WEATHER_JA } from '../analysis.js';
 import { suggestTeams, STYLES, stylesFor, bestTeam, BEST_OPTS, minorAxisTeams, MINOR_FROM } from '../suggest.js';
 import * as store from '../store.js';
 import { formatLabel, saveTeam } from './common.js';
@@ -162,6 +162,9 @@ function results(app, db, list) {
             : `上位${threatsN}体のどれにも、有利なメンバーがいる`),
         planLine(db, s.battlers),
         s.eval.support.length ? h('span', { class: 'reason' }, `味方を助ける: ${s.eval.support.join('・')}`) : null,
+        s.eval.misfits.length
+          ? h('span', { class: 'reason bad' }, `天気が合わない: ${s.eval.misfits.map((x) => `${jaPokemon(db, x.id)}（${WEATHER_JA[x.need]}がない）`).join('、')}`)
+          : null,
         s.eval.stacked.length ? h('span', { class: 'reason bad' }, '弱点が重なる: ', s.eval.stacked.map((t) => typeBadge(t, true))) : null,
         s.eval.pairs.length
           ? h('span', { class: 'reason' }, `よく組まれる組み合わせ: ${s.eval.pairs.slice(0, 4).map(([a, b]) => `${jaPokemon(db, a)}・${jaPokemon(db, b)}`).join(' / ')}${s.eval.pairs.length > 4 ? ` ほか${s.eval.pairs.length - 4}組` : ''}`)

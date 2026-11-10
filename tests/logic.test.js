@@ -5,7 +5,7 @@ import { calcStats, speedTiers, validateSpread, groupSpreads } from '../js/stats
 import { calcDamage, koChance, koLabel } from '../js/damage.js';
 import { makeDB, megaForItem, battleForm, searchPokemon, searchNames, toKatakana, jaPokemon, spriteUrls, megaRuleDB, canMega } from '../js/data.js';
 import { defaultMember, memberBattler, encodeTeam, decodeTeam, toShowdown, fromShowdown, normalizeTeam, movesForItem } from '../js/team.js';
-import { duel, threatReport, suggestTeammates, selectionPlan, defenseTable, offenseTable, speedList, metaBattler, trendAttackType, typeReach, teamSupport, supportedDuel, bulkPlans, basicPlan } from '../js/analysis.js';
+import { duel, threatReport, suggestTeammates, selectionPlan, defenseTable, offenseTable, speedList, metaBattler, trendAttackType, typeReach, teamSupport, supportedDuel, bulkPlans, basicPlan, fieldClash, weatherMisfits } from '../js/analysis.js';
 
 const read = (f) => JSON.parse(readFileSync(new URL(`../data/${f}`, import.meta.url), 'utf8'));
 const shared = { dex: read('pokedex.json'), moves: read('moves.json'), names: read('names-ja.json'), meta: read('meta.json') };
@@ -248,6 +248,27 @@ describe('環境の傾向', () => {
     expect(r).toHaveLength(18);
     for (const x of r) expect(x.weak + x.resist).toBeLessThanOrEqual(30);
     for (let i = 1; i < r.length; i++) expect(r[i - 1].weak - r[i - 1].resist).toBeGreaterThanOrEqual(r[i].weak - r[i].resist);
+  });
+});
+
+describe('天気とフィールド', () => {
+  const b = (ability, moves = [], id = ability) => ({ id, ability, moves, item: '' });
+  it('違う天気どうし・違うフィールドどうしはぶつかる', () => {
+    expect(fieldClash([b('Drought'), b('Drizzle')])).toBe(true);
+    expect(fieldClash([b('Drought'), b('Drought', [], 'x')])).toBe(false);
+    expect(fieldClash([b('Grassy Surge'), b('Psychic Surge')])).toBe(true);
+    expect(fieldClash([b('Drought'), b('Psychic Surge')])).toBe(false);
+  });
+  it('天気に頼るのに、構築の天気と合わないメンバー', () => {
+    expect(weatherMisfits([b('Swift Swim')]).map((x) => x.need)).toEqual(['rain']);
+    expect(weatherMisfits([b('Swift Swim'), b('Drizzle')])).toEqual([]);
+    expect(weatherMisfits([b('', ['Solar Beam']), b('Drizzle')]).map((x) => x.need)).toEqual(['sun']);
+    expect(weatherMisfits([b('', ['Weather Ball']), b('Sand Stream')])).toEqual([]);
+  });
+  it('相方の提案に、いまの構築とぶつかる天気の起こし役は出ない', () => {
+    const team = normalizeTeam([{ ...defaultMember(doubles, 'charizard'), item: 'Charizardite Y' }]);
+    const mates = suggestTeammates(doubles, team, { limit: 30 });
+    for (const m of mates) expect(fieldClash([memberBattler(doubles, team[0]), m.battler])).toBe(false);
   });
 });
 

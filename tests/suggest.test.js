@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { makeDB, isMegaStone, megaRuleDB, canMega } from '../js/data.js';
+import { fieldClash } from '../js/analysis.js';
 import { suggestTeams, isSetter, STYLES, stylesFor, styleMember, bestTeam, minorAxisTeams, MINOR_FROM } from '../js/suggest.js';
 import { memberBattler, megaStoneShare, MEGA_ONLY_SHARE } from '../js/team.js';
 
@@ -19,6 +20,13 @@ function expectValid(db, s) {
 }
 
 describe('構築の提案', () => {
+  it('違う天気どうし・違うフィールドどうしを、同じ構築に入れない', () => {
+    for (const db of [doubles, singles]) {
+      for (const style of ['', 'sun', 'rain']) {
+        for (const s of suggestTeams(db, [], { pool: 60, threats: 30, style, results: 3 })) expect(fieldClash(s.battlers), `${db.format} ${style}`).toBe(false);
+      }
+    }
+  });
   it('メガシンカの型でしか使われていない種族を、メガなしで入れない（ふつうのルール）', () => {
     for (const db of [doubles, singles]) {
       for (const s of suggestTeams(db, [], { pool: 60, threats: 40, results: 3 })) {
