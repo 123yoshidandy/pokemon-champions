@@ -101,7 +101,7 @@ function mutate(db, team, r, pool) {
 /**
  * @param opts { opponents: 相手の構築の数, battles: 探索中の1組あたりの試合数, finalBattles: 最後の測り直しの試合数,
  *               iterations: 試す変異の数, pool: 入れ替えの候補にする上位の数, seed, log }
- * @returns { team, winRate, baseline: { team, winRate }, evaluations, opponents }
+ * @returns { team, winRate: 確認用の相手での勝率, searchWinRate: 探索用の相手での勝率, validationWinRate, baseline: { team, winRate, searchWinRate }, evaluations, opponents }
  */
 export function searchBest(db, { opponents: nOpp = 60, battles = 8, finalBattles = 32, iterations = 300, pool: nPool = 80, patience = 40, seed = 1, log = () => {} } = {}) {
   const r = rng(seed);
@@ -148,15 +148,24 @@ export function searchBest(db, { opponents: nOpp = 60, battles = 8, finalBattles
     }
   }
 
-  // 上位の候補を、試合数を増やして測り直す（探索中の勝率は、少ない試合数で高めに出やすいので）
-  const finalists = [...seen.values()].sort((a, b) => b.v - a.v).slice(0, 5);
-  const final = finalists.map((x) => ({ team: x.team, v: evaluateTeam(db, x.team, opponents, { battles: finalBattles, seed: seed + 1 }) }))
+  // 上位の候補を、探索に使っていない相手の構築群（選び直し用）と、試合数を増やして測り直して一番を決める
+  // （探索に使った相手だけで選ぶと、その相手に合わせすぎた構築を選びやすいので）
+  const fresh = (k) => buildOpponents(db, { n: nOpp, seed: seed + k }).map((o) => ({ ...o, picksVs: new Map() }));
+  const validation = fresh(1000);
+  // 初期値（もとの提案の構築）も必ず入れ、合わせすぎた構築が初期値より悪いのに選ばれることを防ぐ
+  const top = [...seen.values()].sort((a, b) => b.v - a.v).slice(0, 5);
+  const finalists = top.some((x) => teamKey(x.team) === teamKey(baseline)) ? top : [...top, seen.get(teamKey(baseline))];
+  const final = finalists.map((x) => ({ team: x.team, train: x.v, v: evaluateTeam(db, x.team, validation, { battles: finalBattles, seed: seed + 1 }) }))
     .sort((a, b) => b.v - a.v)[0];
-  const baseV = evaluateTeam(db, baseline, opponents, { battles: finalBattles, seed: seed + 1 });
+  // 報告用：探索にも選び直しにも使っていない相手の構築群（確認用）での勝率
+  const test = fresh(2000);
+  const testOf = (team) => evaluateTeam(db, team, test, { battles: finalBattles, seed: seed + 2 });
   return {
     team: normalizeTeam(final.team),
-    winRate: final.v,
-    baseline: { team: normalizeTeam(baseline), winRate: baseV },
+    winRate: testOf(final.team),
+    searchWinRate: final.train,
+    validationWinRate: final.v,
+    baseline: { team: normalizeTeam(baseline), winRate: testOf(baseline), searchWinRate: seen.get(teamKey(baseline)).v },
     evaluations,
     opponents: opponents.length,
   };

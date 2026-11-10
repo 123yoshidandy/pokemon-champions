@@ -53,7 +53,8 @@ for (const rule of RULES) {
   console.log(`${rule}: 探索を始めます`);
   const res = searchBest(db, { ...SETTINGS, log: (s) => console.log(s) });
   const seconds = Math.round((Date.now() - t) / 1000);
-  console.log(`${rule}: ${seconds}秒 勝率 ${(res.winRate * 100).toFixed(1)}%（初期値 ${(res.baseline.winRate * 100).toFixed(1)}%）${res.team.map((m) => m.id).join(' ')}`);
+  const p = (v) => `${(v * 100).toFixed(1)}%`;
+  console.log(`${rule}: ${seconds}秒 確認用の勝率 ${p(res.winRate)}（探索用 ${p(res.searchWinRate)}・選び直し用 ${p(res.validationWinRate)}）、初期値 ${p(res.baseline.winRate)}（探索用 ${p(res.baseline.searchWinRate)}） ${res.team.filter(Boolean).map((m) => m.id).join(' ')}`);
   out.rules[rule] = { ...res, seconds };
 }
 out.generatedAt = new Date().toISOString();
