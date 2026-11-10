@@ -4,7 +4,7 @@ import { jaPokemon, jaItem, jaAbility, jaMove, jaNature, usageOf, allUsed, battl
 import { STATS, STAT_JA, NATURES, SP_TOTAL, SP_MAX, validateSpread } from '../stats.js';
 import { TYPE_JA } from '../types.js';
 import { defaultMember, memberBattler, encodeTeam, decodeTeam, toShowdown, fromShowdown, toJapaneseText, normalizeTeam } from '../team.js';
-import { threatReport, suggestTeammates, defenseTable, offenseTable, speedList, teamSupport, supportNames, bulkPlans } from '../analysis.js';
+import { threatReport, suggestTeammates, defenseTable, offenseTable, speedList, teamSupport, supportNames, bulkPlans, basicPlan } from '../analysis.js';
 import * as store from '../store.js';
 import { formatLabel, saveTeam } from './common.js';
 
@@ -336,6 +336,7 @@ const TABS = [
   ['mates', '相方の提案'],
   ['types', 'タイプ相性'],
   ['speed', 'すばやさ'],
+  ['plan', '戦い方'],
 ];
 
 function analysisTabs(app, team, battlers, set, root) {
@@ -355,6 +356,7 @@ function analysisTabs(app, team, battlers, set, root) {
   } else if (ui.tab === 'threats') body.append(threatsView(app, battlers, root));
   else if (ui.tab === 'mates') body.append(matesView(app, team, set));
   else if (ui.tab === 'types') body.append(typesView(app, battlers));
+  else if (ui.tab === 'plan') body.append(planView(app, battlers));
   else body.append(speedView(app, battlers));
   return h('section', { class: 'card analysis' }, seg, body);
 }
@@ -464,6 +466,20 @@ function typesView(app, battlers) {
         typeBadge(r.type, true), r.best > 1 ? `${r.who.length}` : '—'))),
     h('p', { class: 'muted small' }, '数字は、ばつぐんを取れるメンバーの数。—は、ばつぐんを取れる技がないタイプ。'),
     h('p', { class: 'muted small' }, `弱点が2体以上で、半減以下がいないタイプを強調しています（${def.filter((r) => r.danger === 2).map((r) => TYPE_JA[r.type]).join('・') || 'なし'}）。`),
+  );
+}
+
+// 基本選出と戦い方
+function planView(app, battlers) {
+  const db = app.db;
+  const p = basicPlan(db, battlers, (m) => jaMove(db, m));
+  if (!p) return h('p', { class: 'muted' }, 'ポケモンを入れると、戦い方が出ます。');
+  return h('div', {},
+    h('p', { class: 'muted small' }, `環境の上位${p.n}体を相手に、一番勝ち筋が多い選び方（${db.doubles ? '4体' : '3体'}）を基本選出とし、場を作る役を先発にしています。相手によって変えてください。`),
+    h('div', { class: 'plan-members' }, p.members.map((b) =>
+      h('span', { class: `plan-mon${p.lead.includes(b) ? ' lead' : ''}` }, pokeIcon(db, b.id, b.item), b.name))),
+    h('ul', { class: 'plan-lines' }, p.plan.map((t) => h('li', {}, t))),
+    h('p', { class: 'muted small' }, `この${p.members.length}体で、上位${p.n}体のうち${p.answers}体に有利なメンバーがいます。`),
   );
 }
 

@@ -428,9 +428,9 @@ select.top-n { padding: 4px 8px; }
 .mu-table th.sticky { position: sticky; left: 0; background: var(--card); z-index: 1; }
 .mu-table th a { text-decoration: none; }
 .mu-col { max-width: 5.5em; overflow: hidden; text-overflow: ellipsis; }
-.mu-cell { background: var(--c); color: #fff; text-align: center; border-radius: 4px; padding: 2px 4px; min-width: 4.2em; }
+.mu-cell { background: var(--c); color: #fff; text-align: center; border-radius: 4px; padding: 2px 4px; min-width: 5.6em; }
 .mu-mark { display: block; font-weight: 800; font-size: 13px; line-height: 1.2; }
-.mu-dmg { display: block; font-size: 10px; opacity: 0.9; font-variant-numeric: tabular-nums; }
+.mu-dmg { display: block; font-size: 10px; opacity: 0.9; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .mu-table tr.hole th.sticky { box-shadow: inset 3px 0 0 var(--bad2); }
 .holes { margin: 8px 0; }
 
@@ -501,6 +501,10 @@ select.top-n { padding: 4px 8px; }
 .plan-rank { font-weight: 800; color: var(--accent); width: 1.4em; }
 .plan-mon { padding: 2px 10px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); font-weight: 700; font-size: 13px; }
 .plan-mon.lead { border-color: var(--accent); color: var(--accent); }
+.plan-members { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.plan-members .plan-mon { display: inline-flex; align-items: center; gap: 2px; padding-left: 4px; }
+.plan-members .poke-icon { width: 28px; height: 28px; margin: -4px 0; }
+.plan-lines { margin: 6px 0; padding-left: 1.2em; font-size: 14px; line-height: 1.6; }
 .foe-grid { display: grid; gap: 8px; grid-template-columns: 1fr; }
 @media (min-width: 560px) { .foe-grid { grid-template-columns: 1fr 1fr; } }
 @media (min-width: 900px) { .foe-grid { grid-template-columns: repeat(3, 1fr); } }

@@ -1,6 +1,7 @@
 // おすすめの構築（環境データから6体を提案する）
 import { h, mount, typeBadges, typeBadge, pokemonCombo, iconButton, icon, toast, pokeIcon } from '../ui.js';
-import { jaPokemon, jaItem } from '../data.js';
+import { jaPokemon, jaItem, jaMove } from '../data.js';
+import { basicPlan } from '../analysis.js';
 import { suggestTeams, STYLES, stylesFor, bestTeam, BEST_OPTS, minorAxisTeams, MINOR_FROM } from '../suggest.js';
 import * as store from '../store.js';
 import { formatLabel, saveTeam } from './common.js';
@@ -159,6 +160,7 @@ function results(app, db, list) {
           s.eval.holes.length
             ? `上位${threatsN}体のうち、有利なメンバーがいない相手: ${s.eval.holes.map((id) => jaPokemon(db, id)).join('、')}`
             : `上位${threatsN}体のどれにも、有利なメンバーがいる`),
+        planLine(db, s.battlers),
         s.eval.support.length ? h('span', { class: 'reason' }, `味方を助ける: ${s.eval.support.join('・')}`) : null,
         s.eval.stacked.length ? h('span', { class: 'reason bad' }, '弱点が重なる: ', s.eval.stacked.map((t) => typeBadge(t, true))) : null,
         s.eval.pairs.length
@@ -166,6 +168,13 @@ function results(app, db, list) {
           : null,
       ),
     )))];
+}
+
+// 基本選出（先発・後発）を1行で
+function planLine(db, battlers) {
+  const p = basicPlan(db, battlers, (m) => jaMove(db, m));
+  if (!p) return null;
+  return h('span', { class: 'reason' }, `基本選出: 先発 ${p.lead.map((b) => b.name).join('・')} / 後発 ${p.back.map((b) => b.name).join('・')}`);
 }
 
 function useTeam(app, team) {

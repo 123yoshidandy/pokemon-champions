@@ -366,6 +366,135 @@ export function selectionPlan(db, team, opponentIds) {
   return { matrix, mine, foes, plans: plans.slice(0, 3) };
 }
 
+// ---------- 基本選出と戦い方 ----------
+
+const WEATHER_SETTERS = { Drought: 'はれ', Drizzle: 'あめ', 'Sand Stream': 'すなあらし', 'Snow Warning': 'ゆき' };
+const TERRAIN_SETTERS = { 'Grassy Surge': 'グラスフィールド', 'Electric Surge': 'エレキフィールド', 'Psychic Surge': 'サイコフィールド', 'Misty Surge': 'ミストフィールド' };
+const SETUP = new Set(['Swords Dance', 'Dragon Dance', 'Nasty Plot', 'Calm Mind', 'Quiver Dance', 'Shell Smash', 'Bulk Up', 'Belly Drum', 'Coaching', 'Victory Dance', 'Tidy Up']);
+// 終盤に強くなる特性・技
+const LATE_ABILITIES = { 'Supreme Overlord': '倒れた味方が多いほど強くなる', Moxie: '倒すたびにこうげきが上がる', 'Beast Boost': '倒すたびに能力が上がる' };
+
+// 先発に場を作る役がいるときの重み
+const ROLE_WEIGHT = { tailwind: 0.6, trickRoom: 0.6, weather: 0.3, terrain: 0.2, redirect: 0.3, fakeOut: 0.25, screens: 0.2, intimidate: 0.1 };
+// 後発にいるときの役目
+const BACK_ROLE = { tailwind: 'おいかぜを張り直して、味方を先に動かす', trickRoom: 'トリックルームを張り直す', redirect: '攻撃を引きつけて、味方を守る', fakeOut: 'ねこだましで隙を作り直す', intimidate: 'いかくを入れ直しながら、相手の物理を受ける', screens: '壁を張り直す' };
+
+// 場を作る役（先発に向く）。強いものから順に
+function leadRoles(b) {
+  const r = [];
+  const has = (m) => b.moves.includes(m);
+  if (has('Tailwind')) r.push({ key: 'tailwind', move: 'Tailwind', text: 'おいかぜで先に動き' });
+  if (has('Trick Room')) r.push({ key: 'trickRoom', move: 'Trick Room', text: 'トリックルームで遅い方から動き' });
+  if (WEATHER_SETTERS[b.ability]) r.push({ key: 'weather', text: `${WEATHER_SETTERS[b.ability]}にして` });
+  if (TERRAIN_SETTERS[b.ability]) r.push({ key: 'terrain', text: `${TERRAIN_SETTERS[b.ability]}を張り` });
+  if (has('Follow Me') || has('Rage Powder')) r.push({ key: 'redirect', move: has('Follow Me') ? 'Follow Me' : 'Rage Powder', text: '攻撃を引きつけ' });
+  if (has('Fake Out')) r.push({ key: 'fakeOut', move: 'Fake Out', text: 'ねこだましで隙を作り' });
+  if (has('Reflect') || has('Light Screen') || has('Aurora Veil')) r.push({ key: 'screens', text: '壁を張り' });
+  if (b.ability === 'Intimidate') r.push({ key: 'intimidate', text: 'いかくで相手の物理を弱め' });
+  return r;
+}
+
+// 一番の攻撃技（ダブルでは全体技を少し優先する）
+function mainAttack(db, b) {
+  let best = null;
+  for (const name of b.moves) {
+    const mv = moveData(db, name);
+    if (!isAttack(mv) || !mv.power) continue;
+    const spread = db.doubles && ['allAdjacentFoes', 'allAdjacent'].includes(mv.target);
+    const stab = b.types.includes(mv.type) ? 1.5 : 1;
+    const v = mv.power * stab * (spread ? 1.2 : 1) * (Array.isArray(mv.multihit) ? 3 : mv.multihit ?? 1);
+    if (!best || v > best.v) best = { name, v, spread };
+  }
+  return best;
+}
+
+// 後発の役目（終盤に強い・積む・入れ替えながら戦う）
+function backRole(db, b, jaMoveName) {
+  const lr = leadRoles(b).find((x) => BACK_ROLE[x.key]);
+  if (lr && (lr.key === 'tailwind' || lr.key === 'trickRoom')) return BACK_ROLE[lr.key];
+  if (b.moves.includes('Last Respects')) return `${jaMoveName('Last Respects')}で、倒れた味方が多い終盤に押し切る`;
+  if (LATE_ABILITIES[b.ability]) return `${LATE_ABILITIES[b.ability]}ので、終盤に押し切る`;
+  const setup = b.moves.find((m) => SETUP.has(m));
+  if (setup) return `${jaMoveName(setup)}で積んで、終盤に押し切る`;
+  if (lr) return BACK_ROLE[lr.key];
+  if (b.item === 'Choice Scarf') return 'こだわりスカーフで、弱った相手を上から倒す';
+  return null;
+}
+
+/**
+ * 構築の基本選出（環境の上位 n 体を相手に、一番勝ち筋が多い選び方）と、先発・後発の戦い方
+ * @param jaMoveName 技の日本語名（文を組み立てるのに使う）
+ * @returns { members, lead, back, plan: [文], answers: 有利な相手の数, n }
+ */
+export function basicPlan(db, battlers, jaMoveName = (m) => m, { n = 30 } = {}) {
+  const mine = battlers.filter(Boolean);
+  const pick = Math.min(mine.length, db.doubles ? 4 : 3);
+  if (!pick) return null;
+  const foes = topMeta(db, n).map((id) => metaBattler(db, id));
+  const weights = foes.map((f) => rankWeight(db.rankOf.get(f.id)?.pos));
+  const cache = new Map();
+  const score = (b, j, sup) => {
+    const k = `${b.id}|${j}|${JSON.stringify(sup)}`;
+    if (!cache.has(k)) cache.set(k, supportedDuel(db, b, foes[j], sup).score);
+    return cache.get(k);
+  };
+  // 選んだメンバーで、相手ごとに一番有利な対面の重み付きの和（支援は supIdxs のメンバーのもの）
+  const value = (idxs, supIdxs = idxs) => {
+    const sup = teamSupport(db, supIdxs.map((i) => mine[i]));
+    let v = 0;
+    let answers = 0;
+    foes.forEach((f, j) => {
+      const best = Math.max(...idxs.map((i) => (mine[i].id === f.id ? -1 : score(mine[i], j, sup))));
+      v += weights[j] * best;
+      if (best > 0) answers++;
+    });
+    return { v, answers };
+  };
+  let best = null;
+  for (const idxs of combinations([...mine.keys()], pick)) {
+    const r = value(idxs);
+    if (!best || r.v > best.v) best = { idxs, ...r };
+  }
+  const chosen = best.idxs.map((i) => mine[i]);
+
+  // 先発: 場を作る役 + その場で一番勝ち筋が増える攻め手（シングルは、一番勝ち筋が多い 1 体）
+  let lead;
+  if (db.doubles && chosen.length >= 2) {
+    // 場を作る役の重みが一番大きいメンバーを先発に入れ（すばやさを変える役を一番重く）、相方は 2 体の点が一番高いもの
+    const roleW = (x) => Math.max(0, ...leadRoles(x).map((r) => ROLE_WEIGHT[r.key] ?? 0.05));
+    const first = chosen.slice().sort((x, y) => roleW(y) - roleW(x))[0];
+    const pairs = combinations([...chosen.keys()], 2)
+      .map((p) => p.map((i) => chosen[i]))
+      .filter((pair) => !roleW(first) || pair.includes(first))
+      // 相方は、先発の役の支援だけを入れて比べる（相方自身の支援で点を稼がないように）
+      .map((pair) => ({ pair, v: value(pair.map((x) => mine.indexOf(x)), roleW(first) ? [mine.indexOf(first)] : undefined).v }))
+      .sort((x, y) => y.v - x.v);
+    lead = pairs[0].pair;
+  } else {
+    lead = [chosen.map((b) => ({ b, v: value([mine.indexOf(b)]).v })).sort((a, b) => b.v - a.v)[0].b];
+  }
+  const back = chosen.filter((b) => !lead.includes(b));
+
+  // 戦い方の文
+  const plan = [];
+  // 攻撃の強さ（一番の技の威力 × こうげき・とくこうの高い方）
+  const strength = (b) => (mainAttack(db, b)?.v ?? 0) * Math.max(b.stats[1], b.stats[3]);
+  // 場を作る役は、役を持つ中で攻撃が一番弱いもの。攻め手は、残りで一番強いもの
+  const setter = lead.map((b) => ({ b, roles: leadRoles(b) })).filter((x) => x.roles.length).sort((x, y) => strength(x.b) - strength(y.b))[0];
+  const others = lead.filter((b) => b !== setter?.b);
+  const atkB = (others.length ? others : lead).slice().sort((x, y) => strength(y) - strength(x))[0];
+  const atk = mainAttack(db, atkB) ? { b: atkB, m: mainAttack(db, atkB) } : null;
+  const how = setter ? `${setter.b.name}の${setter.roles[0].text}、` : '';
+  if (atk) plan.push(`先発: ${how}${atk.b.name}の${atk.m.spread ? '全体技' : ''}${jaMoveName(atk.m.name)}で攻める`);
+  else plan.push(`先発: ${lead.map((b) => b.name).join('・')}`);
+  for (const b of back) {
+    const role = backRole(db, b, jaMoveName);
+    const m = mainAttack(db, b);
+    plan.push(`後発: ${b.name}${role ? `は、${role}` : m ? `は、${jaMoveName(m.name)}で残った相手を倒す` : ''}`);
+  }
+  return { members: chosen, lead, back, plan, answers: best.answers, n };
+}
+
 // ---------- 耐久調整 ----------
 
 /**

@@ -5,7 +5,7 @@ import { calcStats, speedTiers, validateSpread, groupSpreads } from '../js/stats
 import { calcDamage, koChance, koLabel } from '../js/damage.js';
 import { makeDB, megaForItem, battleForm, searchPokemon, searchNames, toKatakana, jaPokemon, spriteUrls } from '../js/data.js';
 import { defaultMember, memberBattler, encodeTeam, decodeTeam, toShowdown, fromShowdown, normalizeTeam } from '../js/team.js';
-import { duel, threatReport, suggestTeammates, selectionPlan, defenseTable, offenseTable, speedList, metaBattler, trendAttackType, typeReach, teamSupport, supportedDuel, bulkPlans } from '../js/analysis.js';
+import { duel, threatReport, suggestTeammates, selectionPlan, defenseTable, offenseTable, speedList, metaBattler, trendAttackType, typeReach, teamSupport, supportedDuel, bulkPlans, basicPlan } from '../js/analysis.js';
 
 const read = (f) => JSON.parse(readFileSync(new URL(`../data/${f}`, import.meta.url), 'utf8'));
 const shared = { dex: read('pokedex.json'), moves: read('moves.json'), names: read('names-ja.json'), meta: read('meta.json') };
@@ -219,6 +219,18 @@ describe('分析', () => {
       expect(r.max).toBeLessThan(r.hp);
       expect(validateSpread(p.sp).ok).toBe(true);
     }
+  });
+  it('基本選出: ダブルは4体で先発2体、おいかぜの始動役がいれば先発に入る。シングルは3体で先発1体', () => {
+    const ids = ['charizard', 'floetteeternal', 'whimsicott', 'basculegion', 'incineroar', 'garchomp'];
+    const make = (db) => { const t = []; for (const id of ids) t.push(defaultMember(db, id, t)); return t.map((m) => memberBattler(db, m)); };
+    const d = basicPlan(doubles, make(doubles));
+    expect(d.members).toHaveLength(4);
+    expect(d.lead).toHaveLength(2);
+    if (d.members.some((b) => b.moves.includes('Tailwind'))) expect(d.lead.some((b) => b.moves.includes('Tailwind'))).toBe(true);
+    expect(d.plan[0]).toMatch(/^先発/);
+    const s = basicPlan(singles, make(singles));
+    expect(s.members).toHaveLength(3);
+    expect(s.lead).toHaveLength(1);
   });
   it('相性表は 18 タイプ', () => {
     expect(defenseTable(battlers)).toHaveLength(18);
