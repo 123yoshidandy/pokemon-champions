@@ -57,7 +57,8 @@ export function renderDetail(app, root, id) {
       ),
       h('section', { class: 'card' },
         h('h2', {}, '持ち物'),
-        u.items.map(([i, p]) => bar(p, jaItem(db, i))),
+        // 採用率 1% 以下の持ち物は出さない
+        u.items.filter(([, p]) => p > 1).map(([i, p]) => bar(p, jaItem(db, i))),
         usedMega ? h('p', { class: 'muted small' }, `メガシンカの採用: ${jaItem(db, usedMega[0])} ${usedMega[1]?.toFixed(1)}%`) : null,
       ),
       h('section', { class: 'card' },
