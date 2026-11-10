@@ -1,6 +1,6 @@
 // 画面の部品
 import { TYPE_JA, TYPE_COLOR } from './types.js';
-import { jaPokemon, searchPokemon, searchNames } from './data.js';
+import { jaPokemon, searchPokemon, searchNames, spriteUrls } from './data.js';
 
 export function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
@@ -26,6 +26,18 @@ export function mount(root, ...nodes) {
 
 export function typeBadge(type, small = false) {
   return h('span', { class: `type${small ? ' type-sm' : ''}`, style: { background: TYPE_COLOR[type] } }, TYPE_JA[type] ?? type);
+}
+
+// ポケモンの絵。item がメガストーンなら（または megaForm を渡すと）メガシンカ後の絵。読み込めなければ次の候補、なければ隠す
+export function pokeIcon(db, id, item, cls = '', megaForm = null) {
+  const urls = spriteUrls(db, id, item, megaForm);
+  const img = h('img', { class: `poke-icon ${cls}`, src: urls[0], alt: '', loading: 'lazy', decoding: 'async', width: 40, height: 40 });
+  let i = 0;
+  img.addEventListener('error', () => {
+    if (++i < urls.length) img.src = urls[i];
+    else img.style.visibility = 'hidden';
+  });
+  return img;
 }
 
 export const typeBadges = (types, small) => h('span', { class: 'types' }, types.map((t) => typeBadge(t, small)));

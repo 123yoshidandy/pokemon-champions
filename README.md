@@ -46,6 +46,7 @@ https://123yoshidandy.github.io/pokemon-champions/
 - 使用率・採用データ・種族: [Pokemon Champions Battle Data](https://championsbattledata.com/)（ゲーム内のバトルデータを集めているファンサイト）
 - 日本語名: [PokeAPI](https://github.com/PokeAPI/pokeapi) の CSV
 - 技の性能: [Pokémon Showdown](https://play.pokemonshowdown.com/data/moves.json)
+- ポケモンの絵: Pokémon Showdown の画像（画面から直接読み込む。チャンピオンズで新しく出たメガシンカなど、絵がないものは元のすがたの絵）
 
 GitHub Actions（`.github/workflows/update-data.yml`）が毎日 19:30（日本時間）にデータを取り直し、テストが通れば `data/` をコミットする。順位の推移（`data/history/`）は、このときに記録していく。
 

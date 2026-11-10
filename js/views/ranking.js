@@ -1,5 +1,5 @@
 // 環境（使用率の順位）
-import { h, mount, typeBadges, typeBadge, iconButton, bar } from '../ui.js';
+import { h, mount, typeBadges, typeBadge, iconButton, bar, pokeIcon } from '../ui.js';
 import { jaPokemon, jaItem, usageOf, isMegaStone, battleForm, moveData, toKatakana } from '../data.js';
 import { metaBattler, trendAttackType, typeReach, speedList, TREND_MIN_POWER } from '../analysis.js';
 import { TYPES, TYPE_JA } from '../types.js';
@@ -78,6 +78,7 @@ function rankRow(app, r) {
     h('a', { class: 'rank-link', href: `#/p/${r.id}` },
       h('span', { class: 'rank-pos' }, r.pos),
       h('span', { class: `rank-diff ${diff > 0 ? 'up' : diff < 0 ? 'down' : ''}` }, diff == null ? '' : diff > 0 ? `↑${diff}` : diff < 0 ? `↓${-diff}` : ''),
+      pokeIcon(db, r.id, mega ? topItem : null, 'rank-icon'),
       h('span', { class: 'rank-name' }, jaPokemon(db, r.id), mega ? h('span', { class: 'tag' }, 'メガ') : null),
       h('span', { class: 'rank-meta' },
         typeBadges(form.types, true),

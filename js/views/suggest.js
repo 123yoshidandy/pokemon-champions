@@ -1,5 +1,5 @@
 // おすすめの構築（環境データから6体を提案する）
-import { h, mount, typeBadges, typeBadge, pokemonCombo, iconButton, icon, toast } from '../ui.js';
+import { h, mount, typeBadges, typeBadge, pokemonCombo, iconButton, icon, toast, pokeIcon } from '../ui.js';
 import { jaPokemon, jaItem } from '../data.js';
 import { suggestTeams, STYLES } from '../suggest.js';
 import * as store from '../store.js';
@@ -108,7 +108,7 @@ function results(app, db, list) {
       ),
       h('div', { class: 'suggest-members' }, s.battlers.map((b) =>
         h('a', { class: 'suggest-mon', href: `#/p/${b.id}` },
-          h('span', { class: 'slot-name' }, b.name),
+          h('span', { class: 'suggest-mon-head' }, pokeIcon(db, b.id, b.item), h('span', { class: 'slot-name' }, b.name)),
           typeBadges(b.types, true),
           h('span', { class: 'muted small' }, b.item ? jaItem(db, b.item) : '持ち物なし'),
         ))),

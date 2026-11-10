@@ -304,15 +304,20 @@ select:disabled { opacity: 0.6; }
   flex: 1;
   min-width: 0;
   display: grid;
-  grid-template-columns: 2.2em 2.6em minmax(0, 1fr);
-  grid-template-areas: "pos diff name" "pos diff meta";
+  grid-template-columns: 2.4em 40px minmax(0, 1fr);
+  grid-template-areas: "pos icon name" "diff icon meta";
   column-gap: 6px;
   align-items: center;
   padding: 7px 0;
   text-decoration: none;
 }
+.poke-icon { width: 40px; height: 40px; flex: none; object-fit: contain; }
+.rank-icon { grid-area: icon; }
+.detail-icon { width: 56px; height: 56px; margin: -10px -4px; }
+.slot-head .poke-icon, .mate-head .poke-icon, .suggest-mon-head .poke-icon { width: 32px; height: 32px; margin: -4px -2px; }
+.suggest-mon-head { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .rank-pos { grid-area: pos; font-weight: 800; font-size: 16px; text-align: right; font-variant-numeric: tabular-nums; }
-.rank-diff { grid-area: diff; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rank-diff { grid-area: diff; text-align: right; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .rank-diff.up { color: #8fc7ff; }
 .rank-diff.down { color: var(--bad); }
 .rank-name { grid-area: name; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

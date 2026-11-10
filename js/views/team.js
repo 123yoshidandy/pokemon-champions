@@ -1,5 +1,5 @@
 // 構築（6体の編集と、環境への相性・相方の提案・タイプ相性・すばやさ）
-import { h, mount, typeBadges, typeBadge, icon, iconButton, pokemonCombo, nameCombo, toast, scoreClass, scoreMark, duelDamage, DUEL_LEGEND } from '../ui.js';
+import { h, mount, typeBadges, typeBadge, icon, iconButton, pokemonCombo, nameCombo, toast, scoreClass, scoreMark, duelDamage, DUEL_LEGEND, pokeIcon } from '../ui.js';
 import { jaPokemon, jaItem, jaAbility, jaMove, jaNature, usageOf, allUsed, battleForm, isMegaStone, moveData } from '../data.js';
 import { STATS, STAT_JA, NATURES, SP_TOTAL, SP_MAX, validateSpread } from '../stats.js';
 import { TYPE_JA } from '../types.js';
@@ -75,6 +75,7 @@ function slot(app, team, i, set) {
       onclick: () => { ui.editing = editing ? null : i; set(team); },
     },
     h('div', { class: 'slot-head' },
+      pokeIcon(db, m.id, m.item),
       h('span', { class: 'slot-name' }, b.name),
       typeBadges(b.types, true),
     ),
@@ -392,6 +393,7 @@ function matesView(app, team, set) {
     h('ol', { class: 'mates' }, list.map((s) =>
       h('li', { class: 'mate-card' },
         h('div', { class: 'mate-head' },
+          pokeIcon(db, s.id, s.battler.item),
           h('a', { href: `#/p/${s.id}`, class: 'mate-name' }, s.battler.name),
           typeBadges(s.battler.types, true),
           h('span', { class: 'muted small' }, `${db.rankOf.get(s.id)?.pos}位`),

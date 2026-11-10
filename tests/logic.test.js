@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { effectiveness, effectivenessWithAbility, defenseProfile } from '../js/types.js';
 import { calcStats, speedTiers, validateSpread, groupSpreads } from '../js/stats.js';
 import { calcDamage, koChance, koLabel } from '../js/damage.js';
-import { makeDB, megaForItem, battleForm, searchPokemon, searchNames, toKatakana, jaPokemon } from '../js/data.js';
+import { makeDB, megaForItem, battleForm, searchPokemon, searchNames, toKatakana, jaPokemon, spriteUrls } from '../js/data.js';
 import { defaultMember, memberBattler, encodeTeam, decodeTeam, toShowdown, fromShowdown, normalizeTeam } from '../js/team.js';
 import { duel, threatReport, suggestTeammates, selectionPlan, defenseTable, offenseTable, speedList, metaBattler, trendAttackType, typeReach } from '../js/analysis.js';
 
@@ -99,6 +99,10 @@ describe('データ', () => {
     expect(searchPokemon(doubles, 'Garch')[0]).toBe('garchomp');
     expect(searchNames(['Earthquake', 'Rock Slide'], (m) => doubles.names.moves[m], 'いわ')).toEqual(['Rock Slide']);
     expect(jaPokemon(doubles, 'rotomwash')).toBe('ロトム(ウォッシュ)');
+  });
+  it('絵の URL は、フォルムとメガシンカの名前を付け、元のすがたの絵を控えにする', () => {
+    expect(spriteUrls(doubles, 'rotomwash').map((u) => u.split('/').pop())).toEqual(['rotom-wash.png']);
+    expect(spriteUrls(doubles, 'garchomp', 'Garchompite Z').map((u) => u.split('/').pop())).toEqual(['garchomp-megaz.png', 'garchomp.png']);
   });
 });
 

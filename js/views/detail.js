@@ -1,5 +1,5 @@
 // ポケモンの詳細（採用データ・相性・対面）
-import { h, mount, typeBadges, typeBadge, bar, iconButton, scoreClass } from '../ui.js';
+import { h, mount, typeBadges, typeBadge, bar, iconButton, scoreClass, pokeIcon } from '../ui.js';
 import { jaPokemon, jaItem, jaAbility, jaMove, jaNature, usageOf, rankHistory, moveData } from '../data.js';
 import { STATS, STAT_JA, STAT_LONG_JA, speedTiers, groupSpreads, SPREAD_MAIN_MIN } from '../stats.js';
 import { defenseProfile, TYPES } from '../types.js';
@@ -27,6 +27,7 @@ export function renderDetail(app, root, id) {
           h('button', { type: 'button', class: i === formIdx ? 'on' : '', onclick: () => { formIdx = i; renderForm(); } }, i === 0 ? '通常' : jaPokemon(db, x.title))))
         : null,
       h('div', { class: 'form-head' },
+        pokeIcon(db, id, null, 'detail-icon', formIdx ? f : null),
         typeBadges(f.types),
         h('span', { class: 'muted' }, f.abilities.map((a) => jaAbility(db, a)).join(' / ')),
       ),

@@ -73,6 +73,21 @@ export function battleForm(db, id, item) {
   };
 }
 
+// ---------- 絵 ----------
+
+const SPRITE_BASE = 'https://play.pokemonshowdown.com/sprites/gen5/';
+
+// Pokémon Showdown の絵の URL（rotom-wash、garchomp-megaz）。メガシンカの絵がないときのために、元のすがたの絵も返す
+export function spriteUrls(db, id, item, megaForm = null) {
+  const d = db.dex[id];
+  if (!d) return [];
+  const base = norm(d.base);
+  const suffix = d.name.slice(d.base.length).replace(/^-/, '');
+  const own = `${SPRITE_BASE}${base}${suffix ? `-${norm(suffix)}` : ''}.png`;
+  const mega = megaForm ?? megaForItem(d, item);
+  return mega ? [`${SPRITE_BASE}${base}-${norm(mega.form)}.png`, own] : [own];
+}
+
 // ---------- 検索 ----------
 
 // ひらがな → カタカナ
