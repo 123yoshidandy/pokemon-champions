@@ -1,6 +1,6 @@
 // 環境（使用率の順位）
 import { h, mount, typeBadges, typeBadge, iconButton, bar } from '../ui.js';
-import { jaPokemon, jaItem, jaAbility, usageOf, isMegaStone, battleForm, moveData, isAttack, toKatakana } from '../data.js';
+import { jaPokemon, jaItem, usageOf, isMegaStone, battleForm, moveData, isAttack, toKatakana } from '../data.js';
 import { TYPES, TYPE_JA } from '../types.js';
 import { addToTeam, dataDate, formatLabel } from './common.js';
 import * as store from '../store.js';
@@ -87,28 +87,22 @@ function rankRow(app, r) {
   );
 }
 
-// 上位の傾向（タイプ・攻撃技のタイプ・持ち物・特性）
+// 上位の傾向（タイプ・攻撃技のタイプ）
 function trends(db) {
   const top = db.ranking.slice(0, 30);
   const w = (pos) => 1 / Math.sqrt(pos);
   const typeCount = new Map();
   const atkType = new Map();
-  const items = new Map();
-  const abilities = new Map();
-  let wsum = 0;
   for (const r of top) {
     const u = usageOf(db, r.id);
     const f = battleForm(db, r.id, isMegaStone(db, r.id, u.items[0]?.[0]) ? u.items[0][0] : null);
     if (!f) continue;
     const wt = w(r.pos);
-    wsum += wt;
     for (const t of f.types) typeCount.set(t, (typeCount.get(t) ?? 0) + 1);
     for (const [m, pct] of u.moves) {
       const mv = moveData(db, m);
       if (isAttack(mv) && mv.power) atkType.set(mv.type, (atkType.get(mv.type) ?? 0) + (pct / 100) * wt);
     }
-    for (const [i, pct] of u.items.slice(0, 3)) items.set(i, (items.get(i) ?? 0) + (pct / 100) * wt);
-    for (const [a, pct] of u.abilities.slice(0, 2)) abilities.set(a, (abilities.get(a) ?? 0) + (pct / 100) * wt);
   }
   const sorted = (m) => [...m.entries()].sort((a, b) => b[1] - a[1]);
   const maxAtk = sorted(atkType)[0]?.[1] ?? 1;
@@ -123,14 +117,6 @@ function trends(db) {
       h('div', {},
         h('h3', {}, 'よく使われる攻撃技のタイプ'),
         sorted(atkType).slice(0, 8).map(([t, v]) => bar((v / maxAtk) * 100, TYPE_JA[t], null, '')),
-      ),
-      h('div', {},
-        h('h3', {}, '持ち物'),
-        sorted(items).slice(0, 6).map(([i, v]) => bar((v / wsum) * 100, jaItem(db, i))),
-      ),
-      h('div', {},
-        h('h3', {}, '特性'),
-        sorted(abilities).slice(0, 6).map(([a, v]) => bar((v / wsum) * 100, jaAbility(db, a))),
       ),
     ),
   );
