@@ -113,6 +113,17 @@ describe('シミュレーター', () => {
   });
 });
 
+describe('偏り', () => {
+  const read = (f) => JSON.parse(readFileSync(new URL(`../data/${f}`, import.meta.url), 'utf8'));
+  const db = makeDB({ ...read('doubles.json'), dex: read('pokedex.json'), moves: read('moves.json'), names: read('names-ja.json'), meta: read('meta.json'), history: read('history/doubles.json') });
+  it('同じ構築どうしなら、どちらの側でもほぼ五分（控えは両方が同時に選ぶ）', () => {
+    const team = [];
+    for (const id of ['charizard', 'garchomp', 'sneasler', 'kingambit', 'farigiraf', 'grimmsnarl']) team.push(defaultMember(db, id, team));
+    const w = matchup(db, team, team, { n: 300, seed: 6 });
+    expect(Math.abs(w - 0.5)).toBeLessThan(0.08);
+  });
+});
+
 describe('有名な対面（よく使われる型どうし、シングル）', () => {
   const read = (f) => JSON.parse(readFileSync(new URL(`../data/${f}`, import.meta.url), 'utf8'));
   const db = makeDB({ ...read('singles.json'), dex: read('pokedex.json'), moves: read('moves.json'), names: read('names-ja.json'), meta: read('meta.json'), history: read('history/singles.json') });

@@ -77,7 +77,9 @@ function newBattle(db, teams, picks, seed) {
     return { mons, active: mons.slice(0, n), reserve: mons.slice(n), tailwind: 0, reflect: 0, lightScreen: 0, veil: 0, fainted: 0 };
   });
   const st = { db, doubles, r, sides, weather: null, weatherTurns: 0, terrain: null, terrainTurns: 0, trickRoom: 0, turn: 0, log: [] };
-  for (const s of sides) for (const m of s.active) enter(st, m);
+  const first = sides.flatMap((s) => s.active).map((m) => ({ m, k: r() }));
+  first.sort((a, b) => speedOf(st, b.m) - speedOf(st, a.m) || a.k - b.k);
+  for (const { m } of first) enter(st, m);
   return st;
 }
 
@@ -236,9 +238,9 @@ function chooseAction(st, m) {
 }
 
 // 控えから出すポケモン（いまの相手への打点が一番大きいもの）
-function pickReserve(st, s) {
+function pickReserve(st, s, exclude = new Set()) {
   const side = st.sides[s];
-  const cands = side.reserve.filter((x) => !x.fainted);
+  const cands = side.reserve.filter((x) => !x.fainted && !exclude.has(x));
   if (!cands.length) return null;
   const foes = aliveActive(st.sides[1 - s]);
   let best = null;
@@ -411,18 +413,27 @@ function endOfTurn(st) {
   if (st.weather && --st.weatherTurns <= 0) st.weather = null;
   if (st.terrain && --st.terrainTurns <= 0) st.terrain = null;
   if (st.trickRoom > 0) st.trickRoom--;
-  // 倒れた枠に、控えから出す
+  // 倒れた枠に、控えから出す。実際のゲームと同じく、両方の側が出す前の同じ場を見て選び、そのあとでまとめて出す
+  // （片方が先に出すと、もう片方はそれを見て選べてしまい、どちらの側から処理するかで勝率が偏るため）
+  const entries = [];
   for (let s = 0; s < 2; s++) {
     const side = st.sides[s];
+    const chosen = new Set();
     side.active.forEach((m, i) => {
       if (m && !m.fainted) return;
-      const inn = pickReserve(st, s);
-      if (!inn) { side.active[i] = m; return; }
-      side.active[i] = inn;
-      side.reserve = side.reserve.filter((x) => x !== inn);
-      enter(st, inn);
+      const inn = pickReserve(st, s, chosen);
+      if (!inn) return;
+      chosen.add(inn);
+      entries.push({ side, i, inn });
     });
   }
+  for (const { side, i, inn } of entries) {
+    side.active[i] = inn;
+    side.reserve = side.reserve.filter((x) => x !== inn);
+  }
+  // 場に出たときの特性は、すばやさの順に（同じなら乱数で）
+  entries.sort((a, b) => speedOf(st, b.inn) - speedOf(st, a.inn) || st.r() - 0.5);
+  for (const { inn } of entries) enter(st, inn);
 }
 
 // ---------- 対戦 ----------
