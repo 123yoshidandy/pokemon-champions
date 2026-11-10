@@ -29,8 +29,8 @@ const quick = flag('--quick');
 // 探索の設定。ルールごとの結果にも記録し、設定を変えたら計算し直す。シードはルールによらず同じ
 // （ルールどうしで状態を共有しないので、同時に動かしても、順に動かしたときと同じ結果になる）
 const SETTINGS = quick
-  ? { opponents: 20, battles: 4, finalBattles: 8, iterations: 40, patience: 15, seed: 1 }
-  : { opponents: 100, battles: 10, finalBattles: 60, iterations: 800, patience: 80, seed: 1 };
+  ? { opponents: 20, battles: 4, finalBattles: 8, iterations: 40, rounds: 2, keep: 2, leagueBattles: 8, patience: 15, seed: 1 }
+  : { opponents: 100, battles: 8, finalBattles: 40, iterations: 600, rounds: 4, keep: 3, leagueBattles: 40, patience: 50, seed: 1 };
 const RULES = ['doubles', 'doubles-mega'];
 
 const readJSON = async (f, fallback) => {
@@ -61,7 +61,8 @@ async function compute(rule) {
   const res = searchBest(db, { ...SETTINGS, log: (s) => console.log(`${rule} ${s}`) });
   const seconds = Math.round((Date.now() - t) / 1000);
   const p = (v) => `${(v * 100).toFixed(1)}%`;
-  console.log(`${rule}: ${seconds}秒 確認用の勝率 ${p(res.winRate)}（探索用 ${p(res.searchWinRate)}・選び直し用 ${p(res.validationWinRate)}）、初期値 ${p(res.baseline.winRate)}（探索用 ${p(res.baseline.searchWinRate)}） ${res.team.filter(Boolean).map((m) => m.id).join(' ')}`);
+  console.log(`${rule}: ${seconds}秒 リーグ${res.leagueSize}構築。今の提案の1位は 環境 ${p(res.baseline.winRate)}・リーグ ${p(res.baseline.leagueWinRate)}`);
+  res.ranking.forEach((x, i) => console.log(`  ${i + 1}位 点 ${p(x.score)}（±${p(x.margin)}） 環境 ${p(x.envWinRate)}・リーグ ${p(x.leagueWinRate)}${x.fromSuggestion ? '（今の提案）' : ''} ${x.team.filter(Boolean).map((m) => m.id).join(' ')}`));
   return { ...res, seconds, sourceVersion: meta.sourceVersion, dataDate: meta.date, settings: SETTINGS, generatedAt: new Date().toISOString() };
 }
 

@@ -54,7 +54,11 @@ export function renderSuggest(app, root) {
   // ルールごとに、データの版が同じものだけを使う（1つのルールの計算だけが失敗して古い、ということがあるので）
   const entry = mode === 'best' ? precomputed.data?.rules?.[app.key] : null;
   const pre = entry && entry.sourceVersion === db.meta?.sourceVersion ? entry : null;
-  if (pre && !precomputed.desc.has(app.key)) precomputed.desc.set(app.key, describeTeam(db, pre.team, { threats: BEST_OPTS.threats }));
+  // 上位の候補を、提案と同じ物差しで説明し、シミュレーターの結果（sim）を添える
+  if (pre && !precomputed.desc.has(app.key)) {
+    const list = (pre.ranking ?? [{ team: pre.team, envWinRate: pre.winRate }]).map((x) => ({ ...describeTeam(db, x.team, { threats: BEST_OPTS.threats }), sim: x }));
+    precomputed.desc.set(app.key, list);
+  }
 
   const compute = () => {
     if (mode === 'best') return { style: '', threats: BEST_OPTS.threats, list: [bestTeam(db)].filter(Boolean) };
@@ -110,7 +114,9 @@ export function renderSuggest(app, root) {
 
   const modeBody = {
     best: pre
-      ? [h('p', { class: 'muted small' }, `ありそうな相手の構築${pre.opponents}個と、選出からターンを追って戦わせ、使用率で重みを付けた勝率が一番高い構築です（${dateTime(pre.generatedAt)} に計算）。探索に使っていない相手の構築${pre.opponents}個と${pre.settings.finalBattles}回ずつ戦わせた勝率は ${pct(pre.winRate)}（もとの提案の構築は ${pct(pre.baseline.winRate)}）。`),
+      ? [h('p', { class: 'muted small' }, pre.ranking
+        ? `選出からターンを追って戦わせるシミュレーションで、ありそうな相手の構築${pre.opponents}個への勝率（環境・使用率の重み付き）と、候補どうしの総当たり（リーグ${pre.leagueSize}構築）の勝率の平均が高い順に並べています（${dateTime(pre.generatedAt)} に計算）。今の提案の1位は、環境 ${pct(pre.baseline.winRate)}・リーグ ${pct(pre.baseline.leagueWinRate)}。`
+        : `ありそうな相手の構築${pre.opponents}個と、選出からターンを追って戦わせ、使用率で重みを付けた勝率が一番高い構築です（${dateTime(pre.generatedAt)} に計算。勝率 ${pct(pre.winRate)}、もとの提案の構築は ${pct(pre.baseline.winRate)}）。`),
         // シミュレーターの調整が済んだら消す
         h('p', { class: 'warnings' }, '勝率はシミュレーターの調整中の値で、高めに出ています。')]
       : [h('p', { class: 'muted small' }, `条件を選ばずに、上位${BEST_OPTS.pool}体から、上位${BEST_OPTS.threats}体に一番勝てる構築を1つに絞ります。${precomputed.data === undefined ? '' : db.doubles ? '（対戦のシミュレーションによる計算が、まだこのデータにはないので、この場で簡単に計算します）' : '（シングルは、対戦のシミュレーションによる計算をしていないので、この場で簡単に計算します）'}`)],
@@ -144,7 +150,7 @@ export function renderSuggest(app, root) {
         stale ? h('span', { class: 'muted small' }, '条件を変えました。もう一度押すと出し直します') : null,
       ),
     ),
-    pre ? results(app, db, [precomputed.desc.get(app.key)], { style: '', threats: BEST_OPTS.threats })
+    pre ? results(app, db, precomputed.desc.get(app.key), { style: '', threats: BEST_OPTS.threats })
       : state.result ? results(app, db, state.result.list) : null,
   );
 }
@@ -172,6 +178,7 @@ function results(app, db, list, info = state.result) {
           h('span', { class: 'muted small' }, b.item ? jaItem(db, b.item) : '持ち物なし'),
         ))),
       h('div', { class: 'reasons' },
+        s.sim ? simLines(db, s.sim, list[0].sim) : null,
         s.axis ? h('span', { class: 'reason' }, h('span', { class: 'tag axis-tag' }, `軸: ${jaPokemon(db, s.axis.id)}（${db.rankOf.get(s.axis.id)?.pos}位）`), ` 上位${threatsN}体のうち${s.axis.answers.length}体に有利`) : null,
         h('span', { class: `reason${s.eval.holes.length ? ' bad' : ''}` },
           s.eval.holes.length
@@ -210,3 +217,15 @@ const dateTime = (iso) => {
   const d = new Date(iso);
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
+
+// シミュレーターの結果（点・環境とリーグの勝率・苦手な相手）。top は 1 位の結果
+function simLines(db, x, top) {
+  if (x.score == null) return h('span', { class: 'reason' }, `環境の勝率 ${pct(x.envWinRate)}`);
+  const names = (ids) => ids.map((id) => jaPokemon(db, id)).join('・');
+  const close = x !== top && top.score - x.score < Math.max(x.margin, top.margin);
+  return [
+    h('span', { class: 'reason' }, `点 ${pct(x.score)}（±${pct(x.margin)}）＝ 環境 ${pct(x.envWinRate)}・リーグ ${pct(x.leagueWinRate)}${x.fromSuggestion ? '（今の提案）' : ''}${close ? '。1位との差はぶれの範囲' : ''}`),
+    x.weakLeague?.length ? h('span', { class: 'reason bad' }, `リーグで苦手: ${x.weakLeague.map((w) => `${names(w.ids.slice(0, 3))}など（${pct(w.rate)}）`).join(' / ')}`) : null,
+    x.weakEnv?.length ? h('span', { class: 'reason bad' }, `環境で苦手: ${x.weakEnv.map((w) => `${names(w.ids)}の構築（${pct(w.rate)}）`).join(' / ')}`) : null,
+  ];
+}

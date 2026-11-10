@@ -45,9 +45,16 @@ describe('一番の構築の探索', () => {
     expect(evaluateTeam(singles, team, opp, { battles: 2, seed: 4 })).toBe(evaluateTeam(singles, team, opp, { battles: 2, seed: 4 }));
   });
   it('短い設定でも、規則を守った構築を返す', () => {
-    const r = searchBest(singles, { opponents: 6, battles: 2, finalBattles: 4, iterations: 8, patience: 4, seed: 1 });
-    expect(validTeam(singles, r.team.filter(Boolean))).toBe(true);
+    const r = searchBest(doubles, { opponents: 5, battles: 2, finalBattles: 2, iterations: 6, rounds: 2, keep: 2, leagueBattles: 2, patience: 3, seed: 1 });
+    expect(validTeam(doubles, r.team.filter(Boolean))).toBe(true);
     expect(r.winRate).toBeGreaterThan(0);
     expect(r.evaluations).toBeGreaterThan(1);
+    // リーグの上位を、点（環境とリーグの勝率の平均）の順に並べる
+    expect(r.ranking.length).toBeGreaterThan(1);
+    for (let i = 1; i < r.ranking.length; i++) expect(r.ranking[i - 1].score).toBeGreaterThanOrEqual(r.ranking[i].score);
+    for (const x of r.ranking) {
+      expect(x.score).toBeCloseTo((x.envWinRate + x.leagueWinRate) / 2);
+      expect(x.margin).toBeGreaterThan(0);
+    }
   });
 });
