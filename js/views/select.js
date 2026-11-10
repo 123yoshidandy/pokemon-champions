@@ -7,10 +7,10 @@ import { formatLabel } from './common.js';
 
 export function renderSelect(app, root) {
   const db = app.db;
-  const team = store.getTeam(app.format);
-  const opp = store.getOpponents(app.format).map((id) => (id && db.dex[id] ? id : null));
+  const team = store.getTeam(app.key);
+  const opp = store.getOpponents(app.key).map((id) => (id && db.dex[id] ? id : null));
   const setOpp = (next) => {
-    store.setOpponents(app.format, next);
+    store.setOpponents(app.key, next);
     renderSelect(app, root);
   };
   const pick = db.doubles ? 4 : 3;

@@ -55,6 +55,7 @@ export function renderRanking(app, root) {
     h('section', { class: 'page-head' },
       h('h1', {}, `${formatLabel(db)}の環境`),
       h('p', { class: 'muted' }, `${dataDate(db)} 時点・シーズン ${db.season === 'Current' ? '最新' : db.season}`),
+      db.megaRule ? h('p', { class: 'muted small' }, 'メガシンカできるポケモンだけのルールです。このルールの使用率はないので、ふつうの使用率をメガシンカできるポケモンだけに絞り、順位を付け直しています。') : null,
     ),
     trends(db),
     h('section', { class: 'card' },

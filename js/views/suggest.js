@@ -37,11 +37,11 @@ export function renderSuggest(app, root) {
   if (!MODES.some(([k]) => k === state.mode)) state.mode = 'custom';
   // シングルでは、ダブルだけのスタイル（介護）を選べない
   if (!stylesFor(db).some(([k]) => k === state.style)) state.style = '';
-  const team = store.getTeam(app.format).filter(Boolean);
+  const team = store.getTeam(app.key).filter(Boolean);
   const axis = state.useTeam && team.length ? team.slice(0, 5).map((m) => m.id) : state.axis.filter((id) => id && db.dex[id]);
   const mode = state.mode;
-  const key = JSON.stringify(mode === 'best' ? [app.format, db.date, mode]
-    : [app.format, db.date, mode, mode === 'custom' ? axis : null, state.style, state.pool, state.threats]);
+  const key = JSON.stringify(mode === 'best' ? [app.key, db.date, mode]
+    : [app.key, db.date, mode, mode === 'custom' ? axis : null, state.style, state.pool, state.threats]);
   const redraw = () => { save(); renderSuggest(app, root); };
 
   const compute = () => {
@@ -178,9 +178,9 @@ function planLine(db, battlers) {
 }
 
 function useTeam(app, team) {
-  const cur = store.getTeam(app.format);
+  const cur = store.getTeam(app.key);
   if (cur.some(Boolean) && !confirm('いまの構築を、この構築で置き換えますか？')) return;
-  store.setTeam(app.format, team);
+  store.setTeam(app.key, team);
   toast('構築に入れました');
   app.go('#/team');
 }

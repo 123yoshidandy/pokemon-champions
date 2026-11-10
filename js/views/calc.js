@@ -11,9 +11,9 @@ const emptySide = { boosts: { atk: 0, def: 0, spa: 0, spd: 0 }, status: '', hpPc
 
 function initState(app) {
   const db = app.db;
-  const saved = store.getPref(`calc:${app.format}`, null);
+  const saved = store.getPref(`calc:${app.key}`, null);
   if (saved?.atk?.id && db.dex[saved.atk.id] && saved?.def?.id && db.dex[saved.def.id]) return saved;
-  const team = store.getTeam(app.format).filter(Boolean);
+  const team = store.getTeam(app.key).filter(Boolean);
   const atk = team[0] ?? defaultMember(db, db.ranking[0].id);
   const defId = db.ranking.find((r) => r.id !== atk.id).id;
   return {
@@ -27,10 +27,10 @@ function initState(app) {
 export function renderCalc(app, root) {
   const db = app.db;
   const state = initState(app);
-  const save = () => store.setPref(`calc:${app.format}`, state);
+  const save = () => store.setPref(`calc:${app.key}`, state);
   const redraw = () => { save(); renderCalc(app, root); };
 
-  const team = store.getTeam(app.format).filter(Boolean);
+  const team = store.getTeam(app.key).filter(Boolean);
   const sideView = (key, label) => {
     const s = state[key];
     const setSide = (patch) => { state[key] = { ...s, ...patch }; redraw(); };

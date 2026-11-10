@@ -1,6 +1,6 @@
 // ポケモンの詳細（採用データ・相性・対面）
 import { h, mount, typeBadges, typeBadge, bar, iconButton, scoreClass, pokeIcon } from '../ui.js';
-import { jaPokemon, jaItem, jaAbility, jaMove, jaNature, usageOf, rankHistory, moveData } from '../data.js';
+import { jaPokemon, jaItem, jaAbility, jaMove, jaNature, usageOf, rankHistory, moveData, canMega } from '../data.js';
 import { STATS, STAT_JA, STAT_LONG_JA, speedTiers, groupSpreads, SPREAD_MAIN_MIN } from '../stats.js';
 import { defenseProfile, TYPES } from '../types.js';
 import { metaBattler, duel, topMeta } from '../analysis.js';
@@ -15,6 +15,8 @@ export function renderDetail(app, root, id) {
   }
   const u = usageOf(db, id);
   const rank = db.rankOf.get(id);
+  // メガシンカバトルでは、メガシンカできる種族だけが使える
+  const usable = !db.megaRule || canMega(db, id);
   const forms = [{ title: id, ...d }, ...d.megas];
   let formIdx = 0;
   const formBox = h('div');
@@ -45,8 +47,9 @@ export function renderDetail(app, root, id) {
       h('h1', {}, jaPokemon(db, id)),
       rank ? h('span', { class: 'rank-badge' }, `${rank.pos}位`) : null,
       h('span', { class: 'spacer' }),
-      h('button', { class: 'btn primary', type: 'button', onclick: () => addToTeam(app, id) }, '構築に入れる'),
+      usable ? h('button', { class: 'btn primary', type: 'button', onclick: () => addToTeam(app, id) }, '構築に入れる') : null,
     ),
+    usable ? null : h('p', { class: 'warnings' }, 'メガシンカバトルでは使えないポケモンです（採用データと対面は、ふつうのルールで見てください）。'),
     h('section', { class: 'card' }, formBox, sparkline(rankHistory(db, id)),
       d.num ? h('a', { class: 'ext-link small', href: `https://yakkun.com/ch/zukan/n${d.num}`, target: '_blank', rel: 'noopener' }, 'ポケモン徹底攻略で見る') : null),
     h('div', { class: 'grid2' },
@@ -80,7 +83,7 @@ export function renderDetail(app, root, id) {
       h('div', { class: 'mate-list' }, u.teammates.map((t, i) =>
         h('a', { class: 'mate', href: `#/p/${t}` }, h('span', { class: 'muted' }, i + 1), jaPokemon(db, t)))),
     ),
-    matchups(app, id),
+    usable ? matchups(app, id) : null,
   );
 }
 

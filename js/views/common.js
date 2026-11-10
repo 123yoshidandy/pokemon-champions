@@ -1,12 +1,16 @@
 // 画面どうしで共通の処理
 import * as store from '../store.js';
 import { defaultMember } from '../team.js';
-import { jaPokemon } from '../data.js';
+import { jaPokemon, canMega } from '../data.js';
 import { h, toast } from '../ui.js';
 
 // 構築の空いている枠に、よく使われる型で入れる
 export function addToTeam(app, id) {
-  const team = store.getTeam(app.format);
+  if (app.db.megaRule && !canMega(app.db, id)) {
+    toast(`${jaPokemon(app.db, id)} はメガシンカバトルでは使えません`);
+    return false;
+  }
+  const team = store.getTeam(app.key);
   if (team.some((m) => m?.id === id)) {
     toast(`${jaPokemon(app.db, id)} はもう入っています`);
     return false;
@@ -17,12 +21,12 @@ export function addToTeam(app, id) {
     return false;
   }
   team[i] = defaultMember(app.db, id, team);
-  store.setTeam(app.format, team);
+  store.setTeam(app.key, team);
   toast(`${jaPokemon(app.db, id)} を構築に入れました`);
   return true;
 }
 
-export const formatLabel = (db) => (db.doubles ? 'ダブル' : 'シングル');
+export const formatLabel = (db) => `${db.doubles ? 'ダブル' : 'シングル'}${db.megaRule ? '・メガシンカバトル' : ''}`;
 
 // 構築に名前を付けて、ブラウザに保存する（同じ名前は上書き）。保存したら true
 export function saveTeam(app, team) {
@@ -32,9 +36,9 @@ export function saveTeam(app, team) {
   }
   const name = prompt('構築の名前', team.filter(Boolean).slice(0, 3).map((m) => jaPokemon(app.db, m.id)).join('・'));
   if (!name) return false;
-  const saved = store.getSaved(app.format).filter((s) => s.name !== name);
+  const saved = store.getSaved(app.key).filter((s) => s.name !== name);
   saved.unshift({ name, team, savedAt: Date.now() });
-  store.setSaved(app.format, saved);
+  store.setSaved(app.key, saved);
   toast(`${name} を保存しました（構築の画面から読み込めます）`);
   return true;
 }

@@ -76,6 +76,15 @@ h3 { font-size: 13px; margin: 12px 0 6px; color: var(--muted); font-weight: 600;
   margin-right: auto;
 }
 
+.format-switch .rule-toggle { margin-left: 3px; position: relative; }
+.format-switch .rule-toggle::before { content: ""; position: absolute; left: -3px; top: 5px; bottom: 5px; border-left: 1px solid var(--line); }
+.format-switch .rule-toggle.on { background: #6d4bd1; color: #fff; }
+@media (max-width: 400px) {
+  .app-header { gap: 8px; }
+  .logo { font-size: 15px; letter-spacing: 0.01em; white-space: nowrap; }
+  .format-switch button { padding: 5px 9px; }
+}
+
 .format-switch, .seg {
   display: inline-flex;
   background: var(--bg);

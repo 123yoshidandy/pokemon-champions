@@ -1,6 +1,6 @@
 // 構築（6体の編集と、環境への相性・相方の提案・タイプ相性・すばやさ）
 import { h, mount, typeBadges, typeBadge, icon, iconButton, pokemonCombo, nameCombo, toast, scoreClass, scoreMark, duelDamage, DUEL_LEGEND, pokeIcon } from '../ui.js';
-import { jaPokemon, jaItem, jaAbility, jaMove, jaNature, usageOf, allUsed, battleForm, isMegaStone, moveData } from '../data.js';
+import { jaPokemon, jaItem, jaAbility, jaMove, jaNature, usageOf, allUsed, battleForm, isMegaStone, moveData, canMega } from '../data.js';
 import { STATS, STAT_JA, NATURES, SP_TOTAL, SP_MAX, validateSpread } from '../stats.js';
 import { TYPE_JA } from '../types.js';
 import { defaultMember, memberBattler, encodeTeam, decodeTeam, toShowdown, fromShowdown, toJapaneseText, normalizeTeam } from '../team.js';
@@ -13,9 +13,9 @@ const ui = { editing: null, tab: store.getPref('teamTab', 'threats'), threatN: s
 export function renderTeam(app, root, shared) {
   if (shared) {
     const t = decodeTeam(shared);
-    const cur = store.getTeam(app.format);
+    const cur = store.getTeam(app.key);
     if (t && (!cur.some(Boolean) || confirm('共有された構築で、いまの構築を置き換えますか？'))) {
-      store.setTeam(app.format, t);
+      store.setTeam(app.key, t);
       toast('共有された構築を読み込みました');
     }
     history.replaceState(null, '', '#/team');
@@ -25,9 +25,9 @@ export function renderTeam(app, root, shared) {
 
 function draw(app, root) {
   const db = app.db;
-  const team = store.getTeam(app.format);
+  const team = store.getTeam(app.key);
   const set = (next) => {
-    store.setTeam(app.format, normalizeTeam(next));
+    store.setTeam(app.key, normalizeTeam(next));
     draw(app, root);
   };
   const battlers = team.map((m) => (m ? memberBattler(db, m) : null));
@@ -234,6 +234,8 @@ function warnings(db, team) {
   const items = team.filter((m) => m?.item).map((m) => m.item);
   const dup = [...new Set(items.filter((x, i) => items.indexOf(x) !== i))];
   if (dup.length) list.push(`持ち物が重なっています: ${dup.map((i) => jaItem(db, i)).join('、')}`);
+  const banned = team.filter((m) => m && db.megaRule && !canMega(db, m.id));
+  if (banned.length) list.push(`メガシンカバトルでは使えません: ${banned.map((m) => jaPokemon(db, m.id)).join('、')}`);
   const megas = team.filter((m) => m && isMegaStone(db, m.id, m.item));
   if (megas.length > 1) list.push(`メガシンカは1試合に1体だけです: ${megas.map((m) => jaPokemon(db, m.id)).join('、')}`);
   for (const m of team) {
@@ -265,7 +267,7 @@ function teamActions(app, team, set, root) {
 }
 
 function savedMenu(app, set, root) {
-  const saved = store.getSaved(app.format);
+  const saved = store.getSaved(app.key);
   if (!saved.length) return null;
   return h('details', { class: 'saved' },
     h('summary', { class: 'btn' }, `保存した構築（${saved.length}）`),
@@ -276,9 +278,9 @@ function savedMenu(app, set, root) {
           h('span', { class: 'muted small' }, s.team.filter(Boolean).map((m) => jaPokemon(app.db, m.id)).join(' ')),
         ),
         iconButton('trash', '削除', () => {
-          const list = store.getSaved(app.format);
+          const list = store.getSaved(app.key);
           list.splice(k, 1);
-          store.setSaved(app.format, list);
+          store.setSaved(app.key, list);
           draw(app, root);
         }),
       ))),

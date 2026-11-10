@@ -23,6 +23,10 @@ function save(key, value) {
 export const getFormat = () => (load('format', 'doubles') === 'singles' ? 'singles' : 'doubles');
 export const setFormat = (f) => save('format', f);
 
+// メガシンカバトル（メガシンカできるポケモンだけのルール）で見るか
+export const getMegaRule = () => load('megaRule', false) === true;
+export const setMegaRule = (on) => save('megaRule', !!on);
+
 export const getTeam = (format) => normalizeTeam(load(`team:${format}`, []));
 export const setTeam = (format, team) => save(`team:${format}`, team);
 

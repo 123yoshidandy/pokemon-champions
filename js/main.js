@@ -1,5 +1,5 @@
 // 画面の骨組み（形式の切り替えと、#/... による画面の切り替え）
-import { loadDB } from './data.js';
+import { loadDB, megaRuleDB } from './data.js';
 import { icon, h } from './ui.js';
 import * as store from './store.js';
 import { renderRanking } from './views/ranking.js';
@@ -14,6 +14,10 @@ const view = document.getElementById('view');
 export const app = {
   db: null,
   format: store.getFormat(),
+  // メガシンカバトル
+  megaRule: store.getMegaRule(),
+  // 構築・保存した構築・選出の相手を、形式とルールごとに分けて保存するときの名前
+  get key() { return this.megaRule ? `${this.format}-mega` : this.format; },
   go: (path) => { location.hash = path; },
   // 計算の画面に渡す組み合わせ（構築や詳細の画面から開くとき）
   calcPreset: null,
@@ -49,17 +53,18 @@ async function route() {
 async function setFormat(format) {
   app.format = format;
   store.setFormat(format);
-  for (const b of document.querySelectorAll('.format-switch button')) b.classList.toggle('on', b.dataset.format === format);
+  for (const b of document.querySelectorAll('.format-switch button[data-format]')) b.classList.toggle('on', b.dataset.format === format);
   view.classList.add('loading');
   try {
-    app.db = await loadDB(format);
+    const db = await loadDB(format);
+    app.db = app.megaRule ? megaRuleDB(db) : db;
   } finally {
     view.classList.remove('loading');
   }
 }
 
 for (const el of document.querySelectorAll('[data-icon]')) el.append(icon(el.dataset.icon));
-for (const b of document.querySelectorAll('.format-switch button')) {
+for (const b of document.querySelectorAll('.format-switch button[data-format]')) {
   b.addEventListener('click', async () => {
     if (b.dataset.format === app.format) return;
     await setFormat(b.dataset.format);
@@ -67,6 +72,21 @@ for (const b of document.querySelectorAll('.format-switch button')) {
     route();
   });
 }
+const ruleBtn = document.querySelector('.rule-toggle');
+const showRule = () => {
+  ruleBtn.classList.toggle('on', app.megaRule);
+  ruleBtn.setAttribute('aria-pressed', String(app.megaRule));
+  document.body.classList.toggle('mega-rule', app.megaRule);
+};
+ruleBtn.addEventListener('click', async () => {
+  app.megaRule = !app.megaRule;
+  store.setMegaRule(app.megaRule);
+  showRule();
+  await setFormat(app.format);
+  lastHash = null;
+  route();
+});
+showRule();
 window.addEventListener('hashchange', route);
 
 try {
