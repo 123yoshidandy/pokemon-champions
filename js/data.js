@@ -25,6 +25,9 @@ export async function loadDB(format, base = './data') {
   return makeDB({ ...fmt, dex, moves, names, history, meta });
 }
 
+// 一番の構築（GitHub Actions で事前に計算したもの）。ないときは null
+export const loadBestTeams = (base = './data') => getJSON(`${base}/best-teams.json`).catch(() => null);
+
 // テストからも使えるように、読み込んだ JSON から db を組み立てる部分を分けている
 export function makeDB({ format, date, season, ranking, usage, dex, moves, names, history, meta, megaRule = false }) {
   const rankOf = new Map(ranking.map((r) => [r.id, r]));

@@ -1,8 +1,8 @@
 // おすすめの構築（環境データから6体を提案する）
 import { h, mount, typeBadges, typeBadge, pokemonCombo, iconButton, icon, toast, pokeIcon } from '../ui.js';
-import { jaPokemon, jaItem, jaMove } from '../data.js';
+import { jaPokemon, jaItem, jaMove, loadBestTeams } from '../data.js';
 import { basicPlan, WEATHER_JA } from '../analysis.js';
-import { suggestTeams, STYLES, stylesFor, bestTeam, BEST_OPTS, minorAxisTeams, MINOR_FROM } from '../suggest.js';
+import { suggestTeams, STYLES, stylesFor, bestTeam, BEST_OPTS, minorAxisTeams, MINOR_FROM, describeTeam } from '../suggest.js';
 import * as store from '../store.js';
 import { formatLabel, saveTeam } from './common.js';
 
@@ -32,6 +32,9 @@ const save = () => {
   store.setPref('suggestThreats', state.threats);
 };
 
+// 事前に計算した一番の構築（undefined は読み込み前、null はなし）と、その説明（ルールごと）
+const precomputed = { data: undefined, desc: new Map() };
+
 export function renderSuggest(app, root) {
   const db = app.db;
   if (!MODES.some(([k]) => k === state.mode)) state.mode = 'custom';
@@ -43,6 +46,15 @@ export function renderSuggest(app, root) {
   const key = JSON.stringify(mode === 'best' ? [app.key, db.date, mode]
     : [app.key, db.date, mode, mode === 'custom' ? axis : null, state.style, state.pool, state.threats]);
   const redraw = () => { save(); renderSuggest(app, root); };
+
+  // 一番の構築は、事前の計算（データの版が同じもの）があれば、それを出す
+  if (mode === 'best' && precomputed.data === undefined) {
+    loadBestTeams().then((d) => { precomputed.data = d; redraw(); });
+  }
+  // ルールごとに、データの版が同じものだけを使う（1つのルールの計算だけが失敗して古い、ということがあるので）
+  const entry = mode === 'best' ? precomputed.data?.rules?.[app.key] : null;
+  const pre = entry && entry.sourceVersion === db.meta?.sourceVersion ? entry : null;
+  if (pre && !precomputed.desc.has(app.key)) precomputed.desc.set(app.key, describeTeam(db, pre.team, { threats: BEST_OPTS.threats }));
 
   const compute = () => {
     if (mode === 'best') return { style: '', threats: BEST_OPTS.threats, list: [bestTeam(db)].filter(Boolean) };
@@ -97,7 +109,9 @@ export function renderSuggest(app, root) {
   ];
 
   const modeBody = {
-    best: [h('p', { class: 'muted small' }, `条件を選ばずに、上位${BEST_OPTS.pool}体から、上位${BEST_OPTS.threats}体に一番勝てる構築を1つに絞ります。`)],
+    best: pre
+      ? [h('p', { class: 'muted small' }, `ありそうな相手の構築${pre.opponents}個と、選出からターンを追って戦わせ、使用率で重みを付けた勝率が一番高い構築です（${dateTime(pre.generatedAt)} に計算）。探索に使っていない相手の構築${pre.opponents}個と${pre.settings.finalBattles}回ずつ戦わせた勝率は ${pct(pre.winRate)}（もとの提案の構築は ${pct(pre.baseline.winRate)}）。`)]
+      : [h('p', { class: 'muted small' }, `条件を選ばずに、上位${BEST_OPTS.pool}体から、上位${BEST_OPTS.threats}体に一番勝てる構築を1つに絞ります。${precomputed.data === undefined ? '' : '（対戦のシミュレーションによる計算が、まだこのデータにはないので、この場で簡単に計算します）'}`)],
     custom: [
       h('h2', {}, '軸'),
       team.length
@@ -123,22 +137,23 @@ export function renderSuggest(app, root) {
       h('div', { class: 'seg tabs' }, MODES.map(([k, label]) =>
         h('button', { type: 'button', class: mode === k ? 'on' : '', onclick: () => { state.mode = k; redraw(); } }, label))),
       modeBody,
-      h('div', { class: 'row mt' },
+      pre ? null : h('div', { class: 'row mt' },
         h('button', { class: 'btn primary', type: 'button', disabled: state.busy, onclick: run }, icon('wand'), state.busy ? '計算中…' : '提案する'),
         stale ? h('span', { class: 'muted small' }, '条件を変えました。もう一度押すと出し直します') : null,
       ),
     ),
-    state.result ? results(app, db, state.result.list) : null,
+    pre ? results(app, db, [precomputed.desc.get(app.key)], { style: '', threats: BEST_OPTS.threats })
+      : state.result ? results(app, db, state.result.list) : null,
   );
 }
 
-function results(app, db, list) {
+function results(app, db, list, info = state.result) {
   if (!list.length) return h('p', { class: 'muted' }, '条件に合う構築が見つかりませんでした。');
-  const style = state.result.style;
+  const style = info.style;
   const noSetter = style && !list.some((s) => s.styles.includes(style))
     ? h('p', { class: 'muted' }, `この環境のデータに、${STYLES[style].label}の始動役がいませんでした。`)
     : null;
-  const threatsN = state.result.threats;
+  const threatsN = info.threats;
   return [noSetter, h('ol', { class: 'suggest-list' }, list.map((s, k) =>
     h('li', { class: 'card suggest' },
       h('div', { class: 'suggest-head' },
@@ -187,3 +202,9 @@ function useTeam(app, team) {
   toast('構築に入れました');
   app.go('#/team');
 }
+
+const pct = (v) => `${(v * 100).toFixed(1)}%`;
+const dateTime = (iso) => {
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};

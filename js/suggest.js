@@ -135,6 +135,18 @@ function supportedScore(c, j, sup) {
 // 計算した候補を、データ・相手の数・スタイルごとに覚えておく（提案を出し直すときや、軸を変えて何度も出すときに使い回す）
 const prepared = new WeakMap();
 
+// 1 体の型について、上位の相手への有利さ（と、ダブルでは支援ごとの上がり幅）を計算する
+function candidateOf(db, member, threats) {
+  const id = member.id;
+  const b = memberBattler(db, member);
+  const scores = threats.map((t) => (t.id === id ? 0 : duel(db, b, t).score));
+  const deltas = db.doubles
+    ? Object.fromEntries(Object.entries(SUPPORT_OPTS).map(([k, opts]) =>
+      [k, threats.map((t, j) => (t.id === id ? 0 : duel(db, b, t, opts).score - scores[j]))]))
+    : null;
+  return { id, member, battler: b, mega: isMegaStone(db, id, member.item), scores, deltas, prof: defenseProfile(b.types, b.ability) };
+}
+
 // 候補ごとに、メガストーンあり／なしの型と、上位の相手への有利さを計算しておく
 function prepare(db, ids, threats, style = '') {
   if (!prepared.has(db)) prepared.set(db, new Map());
@@ -157,23 +169,7 @@ function prepare(db, ids, threats, style = '') {
     if (isMegaStone(db, id, main.item) && (db.megaRule || megaStoneShare(db, id) < MEGA_ONLY_SHARE)) {
       variants.push(styleMember(db, defaultMember(db, id, [], { noMega: true }), style));
     }
-    cands.set(id, variants.map((member) => {
-      const b = memberBattler(db, member);
-      const scores = threats.map((t) => (t.id === id ? 0 : duel(db, b, t).score));
-      const deltas = db.doubles
-        ? Object.fromEntries(Object.entries(SUPPORT_OPTS).map(([k, opts]) =>
-          [k, threats.map((t, j) => (t.id === id ? 0 : duel(db, b, t, opts).score - scores[j]))]))
-        : null;
-      return {
-        id,
-        member,
-        battler: b,
-        mega: isMegaStone(db, id, member.item),
-        scores,
-        deltas,
-        prof: defenseProfile(b.types, b.ability),
-      };
-    }));
+    cands.set(id, variants.map((member) => candidateOf(db, member, threats)));
     memo.set(id, cands.get(id));
   }
   return cands;
@@ -385,4 +381,17 @@ export function minorAxisTeams(db, { pool = 60, threats = 40, style = '', n = 5 
     const t = suggestTeams(db, [axis.id], { pool, threats, style, results: 1 })[0];
     return t ? { ...t, axis } : null;
   }).filter(Boolean);
+}
+
+// ---------- 決まった構築の説明 ----------
+
+// 事前に計算した構築などを、提案と同じ物差し（上位の相手への有利さ・弱点の重なりなど）で説明する
+export function describeTeam(db, members, { threats: threatN = 40 } = {}) {
+  const threatIds = topMeta(db, threatN);
+  const threats = threatIds.map((id) => memberBattler(db, defaultMember(db, id)));
+  const weights = threatIds.map((id) => rankWeight(db.rankOf.get(id)?.pos));
+  const ctx = { threats, weights, wsum: weights.reduce((a, b) => a + b, 0), style: '' };
+  const team = members.filter((m) => m && db.dex[m.id]).map((m) => candidateOf(db, m, threats));
+  const battlers = team.map((c) => c.battler);
+  return { team: normalizeTeam(members), battlers, eval: evaluate(db, team, ctx), styles: detectStyles(db, battlers) };
 }

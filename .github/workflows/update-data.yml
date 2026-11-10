@@ -29,3 +29,61 @@ jobs:
           git diff --cached --quiet && exit 0
           git commit -m "データを更新（$(TZ=Asia/Tokyo date +'%Y-%m-%d')）"
           git push
+
+  # 一番の構築を、対戦のシミュレーションで探す（手元のデータだけを使う。数十分かかる）
+  # 4つのルールを同時に計算し、結果を artifact で受け渡して、最後のジョブでまとめてコミットする
+  best-teams:
+    needs: update
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      # どれか1つが失敗しても、ほかのルールは続ける
+      fail-fast: false
+      matrix:
+        rule: [doubles, singles, doubles-mega, singles-mega]
+    steps:
+      # 1つ目のジョブがコミットした、最新のデータを使う
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: node scripts/best-teams.mjs --rule ${{ matrix.rule }} --out best-${{ matrix.rule }}.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: best-${{ matrix.rule }}
+          path: best-${{ matrix.rule }}.json
+
+  # ルールごとの結果をまとめてコミットする。失敗したルールは、前の値を残す
+  best-teams-commit:
+    needs: [update, best-teams]
+    if: ${{ always() && needs.update.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      # 全部のルールが失敗して成果物がないときも、前の値のまま続ける
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: best-*
+          path: best-parts
+          merge-multiple: true
+      - run: node scripts/best-teams.mjs --merge best-parts/*.json
+      - run: npm test
+      - name: 変わっていればコミット
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/best-teams.json
+          git diff --cached --quiet && exit 0
+          git commit -m "一番の構築を更新（$(TZ=Asia/Tokyo date +'%Y-%m-%d')）"
+          git pull --rebase
+          git push
