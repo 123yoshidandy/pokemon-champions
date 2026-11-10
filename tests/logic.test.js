@@ -5,7 +5,7 @@ import { calcStats, speedTiers, validateSpread } from '../js/stats.js';
 import { calcDamage, koChance, koLabel } from '../js/damage.js';
 import { makeDB, megaForItem, battleForm, searchPokemon, searchNames, toKatakana, jaPokemon } from '../js/data.js';
 import { defaultMember, memberBattler, encodeTeam, decodeTeam, toShowdown, fromShowdown, normalizeTeam } from '../js/team.js';
-import { duel, threatReport, suggestTeammates, selectionPlan, defenseTable, offenseTable, speedList, metaBattler } from '../js/analysis.js';
+import { duel, threatReport, suggestTeammates, selectionPlan, defenseTable, offenseTable, speedList, metaBattler, trendAttackType } from '../js/analysis.js';
 
 const read = (f) => JSON.parse(readFileSync(new URL(`../data/${f}`, import.meta.url), 'utf8'));
 const shared = { dex: read('pokedex.json'), moves: read('moves.json'), names: read('names-ja.json'), meta: read('meta.json') };
@@ -156,6 +156,20 @@ describe('対面', () => {
     expect(duel(db, slow, p(), { tailwind: true }).score).toBeGreaterThan(0);
     expect(duel(db, slow, p(), { trickRoom: true }).score).toBeGreaterThan(0);
     expect(duel(db, slow, p(), { fakeOut: true }).score).toBeGreaterThan(0);
+  });
+});
+
+describe('環境の傾向', () => {
+  it('ねこだましや、能力を下げるための技は、攻撃技のタイプに数えない', () => {
+    const b = { ability: '' };
+    expect(trendAttackType(doubles.moves['Fake Out'], 'Fake Out', b)).toBeNull();
+    expect(trendAttackType(doubles.moves['Icy Wind'], 'Icy Wind', b)).toBeNull();
+    expect(trendAttackType(doubles.moves['Rock Slide'], 'Rock Slide', b)).toBe('Rock');
+  });
+  it('連続技は回数をかけ、ウェザーボールは天気のタイプで数える', () => {
+    expect(trendAttackType({ type: 'Water', cat: 'Physical', power: 25, multihit: [2, 5] }, 'X', {})).toBe('Water');
+    expect(trendAttackType(doubles.moves['Weather Ball'], 'Weather Ball', { ability: 'Drought' })).toBe('Fire');
+    expect(trendAttackType(doubles.moves['Weather Ball'], 'Weather Ball', { ability: '' })).toBeNull();
   });
 });
 

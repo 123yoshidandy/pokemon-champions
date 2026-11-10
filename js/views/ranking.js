@@ -1,6 +1,7 @@
 // 環境（使用率の順位）
 import { h, mount, typeBadges, typeBadge, iconButton, bar } from '../ui.js';
-import { jaPokemon, jaItem, usageOf, isMegaStone, battleForm, moveData, isAttack, toKatakana } from '../data.js';
+import { jaPokemon, jaItem, usageOf, isMegaStone, battleForm, moveData, toKatakana } from '../data.js';
+import { metaBattler, trendAttackType, TREND_MIN_POWER } from '../analysis.js';
 import { TYPES, TYPE_JA } from '../types.js';
 import { addToTeam, dataDate, formatLabel } from './common.js';
 import * as store from '../store.js';
@@ -99,9 +100,10 @@ function trends(db) {
     if (!f) continue;
     const wt = w(r.pos);
     for (const t of f.types) typeCount.set(t, (typeCount.get(t) ?? 0) + 1);
+    const b = metaBattler(db, r.id);
     for (const [m, pct] of u.moves) {
-      const mv = moveData(db, m);
-      if (isAttack(mv) && mv.power) atkType.set(mv.type, (atkType.get(mv.type) ?? 0) + (pct / 100) * wt);
+      const t = trendAttackType(moveData(db, m), m, b);
+      if (t) atkType.set(t, (atkType.get(t) ?? 0) + (pct / 100) * wt);
     }
   }
   const sorted = (m) => [...m.entries()].sort((a, b) => b[1] - a[1]);
@@ -116,6 +118,7 @@ function trends(db) {
       ),
       h('div', {},
         h('h3', {}, 'よく使われる攻撃技のタイプ'),
+        h('p', { class: 'muted small' }, `威力${TREND_MIN_POWER}未満の技（ねこだましなど）と、こごえるかぜ・バークアウトは数えない`),
         sorted(atkType).slice(0, 8).map(([t, v]) => bar((v / maxAtk) * 100, TYPE_JA[t], null, '')),
       ),
     ),

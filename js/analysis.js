@@ -314,6 +314,23 @@ export function selectionPlan(db, team, opponentIds) {
   return { matrix, mine, foes, plans: plans.slice(0, 3) };
 }
 
+// ---------- 環境の傾向 ----------
+
+// 能力を下げるために使う技（ダメージは小さい）
+const UTILITY_ATTACKS = new Set(['Icy Wind', 'Snarl', 'Electroweb']);
+const WEATHER_BALL_TYPE = { Drought: 'Fire', Drizzle: 'Water', 'Sand Stream': 'Rock', 'Snow Warning': 'Ice' };
+// 威力（連続技は回数をかけたもの）がこれより低い技は、攻撃技のタイプの傾向に数えない（ねこだましなど）
+export const TREND_MIN_POWER = 50;
+
+// 攻撃技のタイプの傾向に数えるときのタイプ（数えないなら null）
+export function trendAttackType(mv, name, b) {
+  if (!isAttack(mv) || UTILITY_ATTACKS.has(name)) return null;
+  if (name === 'Weather Ball') return WEATHER_BALL_TYPE[b.ability] ?? null;
+  // おはかまいりは、倒れた味方の数で威力が上がる
+  const power = name === 'Last Respects' ? 100 : (mv.power ?? 0) * (Array.isArray(mv.multihit) ? 3 : mv.multihit ?? 1);
+  return power >= TREND_MIN_POWER ? mv.type : null;
+}
+
 // ---------- すばやさ ----------
 
 export function speedList(db, battlers, n = 40) {
