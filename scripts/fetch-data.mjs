@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 // ポケモンチャンピオンズのバトルデータを取得し、data/ 以下の JSON を作り直す。
-// 取得元: https://championsbattledata.com （ゲーム内のバトルデータを集めているファンサイト）
 // 日本語名: PokeAPI の CSV、技の性能: Pokémon Showdown の moves.json
 //
 // 使い方: node scripts/fetch-data.mjs [--force]
