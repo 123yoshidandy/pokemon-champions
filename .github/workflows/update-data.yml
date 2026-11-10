@@ -33,6 +33,8 @@ jobs:
   # 一番の構築を、対戦のシミュレーションで探す（手元のデータだけを使う。数十分かかる）
   # 4つのルールを同時に計算し、結果を artifact で受け渡して、最後のジョブでまとめてコミットする
   best-teams:
+    # シミュレーターの調整中は止めておく（作りかけのまま毎日計算してコミットしないように）。調整が済んだら、この行を消す
+    if: false
     needs: update
     runs-on: ubuntu-latest
     timeout-minutes: 180
@@ -59,7 +61,9 @@ jobs:
   # ルールごとの結果をまとめてコミットする。失敗したルールは、前の値を残す
   best-teams-commit:
     needs: [update, best-teams]
-    if: ${{ always() && needs.update.result == 'success' }}
+    # シミュレーターの調整中は止めておく。調整が済んだら、下の行に戻す
+    if: false
+    # if: ${{ always() && needs.update.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
