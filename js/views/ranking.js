@@ -40,7 +40,7 @@ export function renderRanking(app, root) {
       return true;
     });
     const limit = state.showAll || q || state.type ? rows.length : 60;
-    list.replaceChildren(
+    mount(list,
       ...rows.slice(0, limit).map((r) => rankRow(app, r)),
       rows.length > limit
         ? h('li', { class: 'more' }, h('button', { class: 'btn', type: 'button', onclick: () => { state.showAll = true; renderList(); } }, `すべて表示（${rows.length}体）`))

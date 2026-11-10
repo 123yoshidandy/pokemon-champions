@@ -21,7 +21,7 @@ export function renderDetail(app, root, id) {
 
   const renderForm = () => {
     const f = forms[formIdx];
-    formBox.replaceChildren(
+    mount(formBox,
       forms.length > 1
         ? h('div', { class: 'seg' }, forms.map((x, i) =>
           h('button', { type: 'button', class: i === formIdx ? 'on' : '', onclick: () => { formIdx = i; renderForm(); } }, i === 0 ? '通常' : jaPokemon(db, x.title))))
