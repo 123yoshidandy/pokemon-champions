@@ -37,12 +37,14 @@ jobs:
     if: false
     needs: update
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 300
     strategy:
-      # どれか1つが失敗しても、ほかのルールは続ける
+      # どれか1つが失敗しても、ほかは続ける
       fail-fast: false
+      # ルールごとに、探索を4通りのシードで同時にまわす（最後のジョブで、それぞれの上位を比べ直す）
       matrix:
         rule: [doubles, doubles-mega]
+        seed: [1, 2, 3, 4]
     steps:
       # 1つ目のジョブがコミットした、最新のデータを使う
       - uses: actions/checkout@v4
@@ -52,11 +54,11 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
-      - run: node scripts/best-teams.mjs --rule ${{ matrix.rule }} --out best-${{ matrix.rule }}.json
+      - run: node scripts/best-teams.mjs --rule ${{ matrix.rule }} --seed ${{ matrix.seed }} --out best-${{ matrix.rule }}-${{ matrix.seed }}.json
       - uses: actions/upload-artifact@v4
         with:
-          name: best-${{ matrix.rule }}
-          path: best-${{ matrix.rule }}.json
+          name: best-${{ matrix.rule }}-${{ matrix.seed }}
+          path: best-${{ matrix.rule }}-${{ matrix.seed }}.json
 
   # ルールごとの結果をまとめてコミットする。失敗したルールは、前の値を残す
   best-teams-commit:

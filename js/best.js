@@ -40,8 +40,11 @@ export function evaluateDetail(db, team, opponents, { battles = 8, seed = 1 } = 
   let sum = 0;
   let wsum = 0;
   const ids = team.map((m) => m.id);
+  const tk = teamKey(team);
   const per = opponents.map((o, k) => {
-    const mine = choosePicks(db, team, o.team.map((m) => m.id));
+    // 選出は、相手ごとに覚えて使い回す（同じ組み合わせを何度も評価するので）
+    const mine = o.picksMine?.get(tk) ?? choosePicks(db, team, o.team.map((m) => m.id));
+    o.picksMine?.set(tk, mine);
     const theirs = o.picksVs?.get(ids.join(',')) ?? choosePicks(db, o.team, ids);
     o.picksVs?.set(ids.join(','), theirs);
     let win = 0;
@@ -105,21 +108,16 @@ function mutate(db, team, r, pool) {
 
 // ---------- 探索 ----------
 
-
 // 試合数 n で測った勝率 p の、95% のぶれの幅（±）
 export const margin = (p, n) => 1.96 * Math.sqrt(Math.max(p * (1 - p), 0.01) / Math.max(1, n));
 
-// 1 回分の探索（初期値から局所探索し、上位 5 つを、探索に使っていない相手の構築群で選び直す）
-function searchOnce(db, starts, { opponents, validation, pool, battles, finalBattles, iterations, patience, seed, log }) {
+// 候補を作る：安い評価（相手の一部・少ない試合）で局所探索し、評価したものすべてを返す [{ team, v }]
+function explore(db, starts, { opponents, pool, battles, iterations, patience, seed, log }) {
   const r = rng(seed);
   const seen = new Map();
-  let evaluations = 0;
   const score = (team) => {
     const k = teamKey(team);
-    if (!seen.has(k)) {
-      seen.set(k, { team, v: evaluateTeam(db, team, opponents, { battles, seed }) });
-      evaluations++;
-    }
+    if (!seen.has(k)) seen.set(k, { team, v: evaluateTeam(db, team, opponents, { battles, seed }) });
     return seen.get(k).v;
   };
   let si = 0;
@@ -138,95 +136,104 @@ function searchOnce(db, starts, { opponents, validation, pool, battles, finalBat
       } else stale++;
     } else stale++;
     // しばらく良くならなければ、別の初期値から
-    if (stale >= patience && si + 1 < starts.length) {
-      cur = starts[++si];
+    if (stale >= patience) {
+      si = (si + 1) % starts.length;
+      cur = starts[si];
       curV = score(cur);
       stale = 0;
     }
   }
-  const top = [...seen.values()].sort((a, b) => b.v - a.v).slice(0, 5);
-  const finalists = top.map((x) => ({ team: x.team, train: x.v, v: evaluateTeam(db, x.team, validation, { battles: finalBattles, seed: seed + 1 }) }))
-    .sort((a, b) => b.v - a.v);
-  return { finalists, evaluations };
+  return [...seen.values()];
 }
 
 /**
- * 一番の構築を、リーグで選ぶ
- * 1. 探索を rounds 回まわす。2 回目からは、それまでに見つけた構築を相手に加える（相手の側も強くしていく）
- * 2. 各回の上位 keep 個と、今の提案の上位 5 つを「リーグ」に集める
- * 3. 探索にも選び直しにも使っていない相手の構築群（使用率の重み）への勝率と、リーグのほかの構築との直接対決の勝率の平均で並べる
- *    （特定の相手に強いだけでなく、どれにも大きく負けない構築を上にするため）
- * @returns { ranking: 上位 [{ team, score, envWinRate, leagueWinRate, margin, weakLeague, strongLeague, weakEnv }], team, winRate, baseline, ... }
+ * 段階的なふるい落とし（successive halving）
+ * 1 段目は全部の候補を、相手の構築群の全部と battles 試合ずつ戦わせ、上位半分を残す。段ごとに試合数を 2 倍にし、
+ * keep 個まで減らす。試合は段ごとに新しいシードで、結果は積み上げる（有望な候補ほど多く試合させ、少ない計算で精度を上げる）
+ * @returns [{ team, rate, games, margin, per }]（rate の高い順。per は相手ごとの勝率）
  */
-export function searchBest(db, { opponents: nOpp = 60, battles = 8, finalBattles = 32, iterations = 300, rounds = 4, keep = 3, leagueBattles = 40, top: nTop = 5,
-  pool: nPool = 80, patience = 40, seed = 1, log = () => {} } = {}) {
+export function race(db, candidates, opponents, { battles = 1, keep = 4, seed = 1, log = () => {} } = {}) {
+  let alive = candidates.map((team) => ({ team, sum: 0, wsum: 0, games: 0, perWin: opponents.map(() => 0), perGames: 0 }));
+  const all = alive.slice();
+  let b = battles;
+  for (let stage = 0; ; stage++) {
+    for (const c of alive) {
+      const d = evaluateDetail(db, c.team, opponents, { battles: b, seed: seed + 100 * stage });
+      opponents.forEach((o, k) => {
+        c.sum += d.per[k] * o.weight * b;
+        c.wsum += o.weight * b;
+        c.perWin[k] += d.per[k] * b;
+      });
+      c.games += d.games;
+      c.perGames += b;
+      c.rate = c.sum / c.wsum;
+    }
+    alive.sort((x, y) => y.rate - x.rate);
+    log(`  ふるい ${stage + 1}段目: ${alive.length}個、1つあたり ${alive[0].games}試合、1位 ${(alive[0].rate * 100).toFixed(1)}%`);
+    if (alive.length <= keep) break;
+    alive = alive.slice(0, Math.max(keep, Math.ceil(alive.length / 2)));
+    b *= 2;
+  }
+  for (const c of all) {
+    c.margin = margin(c.rate, c.games);
+    c.per = c.perWin.map((w) => w / c.perGames);
+  }
+  return all.sort((x, y) => y.games - x.games || y.rate - x.rate);
+}
+
+/**
+ * 一番の構築を探す
+ * 1. 相手の構築群の一部と少ない試合の安い評価で局所探索し、評価した構築の上位 candidates 個と今の提案の 5 つを候補にする
+ * 2. 候補を、相手の構築群の全部（使用率の重み付き）との段階的なふるい落としで比べ、最後の keep 個は数千試合で比べる
+ * @returns { ranking: [{ team, envWinRate, margin, games, weakEnv, fromSuggestion }], team, winRate, baseline, ... }
+ */
+export function searchBest(db, { opponents: nOpp = 400, searchOpponents = 60, battles = 4, iterations = 800, candidates: nCand = 64,
+  raceBattles = 1, keep = 4, pool: nPool = 80, patience = 60, seed = 1, log = () => {} } = {}) {
   const pool = topMeta(db, nPool).filter((id) => db.usage[id]);
-  const prep = (list) => list.map((o) => ({ ...o, picksVs: new Map() }));
-  const base = buildOpponents(db, { n: nOpp, seed });
-  const validationBase = buildOpponents(db, { n: nOpp, seed: seed + 1000 });
+  const prep = (list) => list.map((o) => ({ ...o, picksVs: new Map(), picksMine: new Map() }));
+  const opponents = prep(buildOpponents(db, { n: nOpp, seed }));
   // 初期値：今の提案の結果（一番の構築と、おまかせの上位）
   const starts = suggestTeams(db, [], { pool: 100, threats: 60, beam: 48, results: 5 })
     .map((s) => fixItems(db, s.team.filter(Boolean)))
     .filter((t) => validTeam(db, t));
-  const avgW = base.reduce((a, o) => a + o.weight, 0) / base.length;
-  const found = [];
-  let evaluations = 0;
-  let searchWinRate = null;
-  for (let k = 0; k < rounds; k++) {
-    // それまでに見つけた構築を、相手（探索用・選び直し用）に加える。重みは、相手の構築群の重みの平均の 2 倍
-    const extra = found.map((x) => ({ team: x.team, weight: avgW * 2 }));
-    const res = searchOnce(db, starts, {
-      opponents: prep([...base, ...extra]), validation: prep([...validationBase, ...extra]), pool, battles, finalBattles,
-      iterations: Math.ceil(iterations / rounds), patience, seed: seed + k * 17, log: (s) => log(`回${k + 1}${s}`),
-    });
-    evaluations += res.evaluations;
-    if (k === 0) searchWinRate = res.finalists[0].train;
-    for (const x of res.finalists.slice(0, keep)) if (!found.some((y) => teamKey(y.team) === teamKey(x.team))) found.push(x);
-  }
-
-  // リーグ：見つけた構築と、今の提案の上位 5 つ
-  const league = found.map((x) => x.team);
-  for (const t of starts) if (!league.some((x) => teamKey(x) === teamKey(t))) league.push(t);
-  const test = prep(buildOpponents(db, { n: nOpp, seed: seed + 2000 }));
-  const env = league.map((t) => evaluateDetail(db, t, test, { battles: finalBattles, seed: seed + 2 }));
-  // 直接対決（a から見た勝率。b から見れば 1 − その値）
-  const h2h = league.map(() => league.map(() => null));
-  league.forEach((a, i) => league.forEach((b, j) => {
-    if (j <= i) return;
-    h2h[i][j] = matchup(db, a, b, { n: leagueBattles, seed: seed + 3 + i * 31 + j });
-    h2h[j][i] = 1 - h2h[i][j];
-  }));
+  // 1. 安い評価で探す（相手の構築群の一部）
+  const seen = explore(db, starts, { opponents: opponents.slice(0, searchOpponents), pool, battles, iterations, patience, seed, log });
+  const cands = seen.sort((a, b) => b.v - a.v).slice(0, nCand).map((x) => x.team);
+  for (const t of starts) if (!cands.some((x) => teamKey(x) === teamKey(t))) cands.push(t);
+  // 2. ふるい落とし（探索とは別のシードの試合で）
+  const raced = race(db, cands, opponents, { battles: raceBattles, keep, seed: seed + 7777, log });
   const ids = (t) => t.map((x) => x.id);
   const byRank = (list) => list.slice().sort((a, b) => (db.rankOf.get(a)?.pos ?? 999) - (db.rankOf.get(b)?.pos ?? 999));
-  const rows = league.map((team, i) => {
-    const vs = h2h[i].map((v, j) => (j === i ? null : { j, v })).filter(Boolean);
-    const leagueWinRate = vs.reduce((a, x) => a + x.v, 0) / Math.max(1, vs.length);
-    const envWinRate = env[i].rate;
-    const sorted = vs.slice().sort((a, b) => a.v - b.v);
-    return {
-      team: normalizeTeam(team),
-      score: (envWinRate + leagueWinRate) / 2,
-      envWinRate,
-      leagueWinRate,
-      // 点（2 つの勝率の平均）の 95% のぶれの幅
-      margin: 0.5 * Math.hypot(margin(envWinRate, env[i].games), margin(leagueWinRate, leagueBattles * vs.length)),
-      weakLeague: sorted.slice(0, 2).map((x) => ({ ids: ids(league[x.j]), rate: x.v })),
-      strongLeague: sorted.slice(-2).reverse().map((x) => ({ ids: ids(league[x.j]), rate: x.v })),
-      // 環境で苦手な相手：勝率が低い相手の構築の、主なメンバー（使用率の順位が高い 3 体）
-      weakEnv: env[i].per.map((v, k) => ({ v, k })).sort((a, b) => a.v - b.v).slice(0, 3)
-        .map(({ v, k }) => ({ ids: byRank(ids(test[k].team)).slice(0, 3), rate: v })),
-      fromSuggestion: starts.some((t) => teamKey(t) === teamKey(team)),
-    };
-  }).sort((a, b) => b.score - a.score);
-  const baseRow = rows.find((x) => teamKey(x.team.filter(Boolean)) === teamKey(starts[0]));
+  const row = (c) => ({
+    team: normalizeTeam(c.team), envWinRate: c.rate, margin: c.margin, games: c.games,
+    // 苦手な相手：勝率が低い相手の構築の、主なメンバー（使用率の順位が高い 3 体）
+    weakEnv: c.per.map((v, k) => ({ v, k })).sort((a, b) => a.v - b.v).slice(0, 3)
+      .map(({ v, k }) => ({ ids: byRank(ids(opponents[k].team)).slice(0, 3), rate: v })),
+    fromSuggestion: starts.some((t) => teamKey(t) === teamKey(c.team)),
+  });
+  const ranking = raced.slice(0, keep).map(row);
+  const base = raced.find((c) => teamKey(c.team) === teamKey(starts[0]));
   return {
-    ranking: rows.slice(0, nTop),
-    team: rows[0].team,
-    winRate: rows[0].envWinRate,
-    searchWinRate,
-    baseline: { team: normalizeTeam(starts[0]), winRate: baseRow.envWinRate, leagueWinRate: baseRow.leagueWinRate, score: baseRow.score },
-    leagueSize: league.length,
-    evaluations,
-    opponents: nOpp,
+    ranking,
+    team: ranking[0].team,
+    winRate: ranking[0].envWinRate,
+    baseline: { team: normalizeTeam(starts[0]), winRate: base.rate, margin: base.margin, games: base.games },
+    candidates: cands.length,
+    explored: seen.length,
+    opponents: opponents.length,
   };
+}
+
+// 複数のシードの結果の上位をまとめ、もう一度ふるい落としで比べる（Actions で、シードごとに分けて計算したあと）
+export function finalRace(db, teams, { opponents: nOpp = 400, raceBattles = 2, keep = 4, seed = 99, log = () => {} } = {}) {
+  const opponents = buildOpponents(db, { n: nOpp, seed }).map((o) => ({ ...o, picksVs: new Map(), picksMine: new Map() }));
+  const uniq = [];
+  for (const t of teams) if (!uniq.some((x) => teamKey(x) === teamKey(t))) uniq.push(t);
+  const raced = race(db, uniq, opponents, { battles: raceBattles, keep, seed: seed + 7777, log });
+  const byRank = (list) => list.slice().sort((a, b) => (db.rankOf.get(a)?.pos ?? 999) - (db.rankOf.get(b)?.pos ?? 999));
+  return raced.slice(0, keep).map((c) => ({
+    team: normalizeTeam(c.team), envWinRate: c.rate, margin: c.margin, games: c.games,
+    weakEnv: c.per.map((v, k) => ({ v, k })).sort((a, b) => a.v - b.v).slice(0, 3)
+      .map(({ v, k }) => ({ ids: byRank(opponents[k].team.map((m) => m.id)).slice(0, 3), rate: v })),
+  }));
 }

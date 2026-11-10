@@ -15,7 +15,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeDB, megaRuleDB } from '../js/data.js';
-import { searchBest } from '../js/best.js';
+import { searchBest, finalRace, teamKey } from '../js/best.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA = path.join(ROOT, 'data');
@@ -29,8 +29,10 @@ const quick = flag('--quick');
 // 探索の設定。ルールごとの結果にも記録し、設定を変えたら計算し直す。シードはルールによらず同じ
 // （ルールどうしで状態を共有しないので、同時に動かしても、順に動かしたときと同じ結果になる）
 const SETTINGS = quick
-  ? { opponents: 20, battles: 4, finalBattles: 8, iterations: 40, rounds: 2, keep: 2, leagueBattles: 8, patience: 15, seed: 1 }
-  : { opponents: 100, battles: 8, finalBattles: 40, iterations: 600, rounds: 4, keep: 3, leagueBattles: 40, patience: 50, seed: 1 };
+  ? { opponents: 40, searchOpponents: 15, battles: 2, iterations: 40, candidates: 8, raceBattles: 1, keep: 2, patience: 15, seed: 1 }
+  : { opponents: 400, searchOpponents: 60, battles: 4, iterations: 800, candidates: 64, raceBattles: 1, keep: 4, patience: 60, seed: 1 };
+// --seed でシードを変えられる（ぶれを測るとき、Actions でシードごとに分けて計算するとき）
+if (value('--seed')) SETTINGS.seed = Number(value('--seed'));
 const RULES = ['doubles', 'doubles-mega'];
 
 const readJSON = async (f, fallback) => {
@@ -52,31 +54,60 @@ async function compute(rule) {
     console.log(`${rule}: データの版と設定が前回と同じ（${meta.sourceVersion}）なので、前回の結果を使います`);
     return old;
   }
-  const format = rule.split('-')[0];
-  const shared = { dex: await readJSON('pokedex.json'), moves: await readJSON('moves.json'), names: await readJSON('names-ja.json'), meta };
-  const base = makeDB({ ...(await readJSON(`${format}.json`)), ...shared, history: await readJSON(`history/${format}.json`, { dates: [], ranks: {} }) });
-  const db = rule.endsWith('-mega') ? megaRuleDB(base) : base;
+  const db = await loadRuleDB(rule);
   const t = Date.now();
-  console.log(`${rule}: 探索を始めます`);
+  console.log(`${rule}: 探索を始めます（シード ${SETTINGS.seed}）`);
   const res = searchBest(db, { ...SETTINGS, log: (s) => console.log(`${rule} ${s}`) });
   const seconds = Math.round((Date.now() - t) / 1000);
-  const p = (v) => `${(v * 100).toFixed(1)}%`;
-  console.log(`${rule}: ${seconds}秒 リーグ${res.leagueSize}構築。今の提案の1位は 環境 ${p(res.baseline.winRate)}・リーグ ${p(res.baseline.leagueWinRate)}`);
-  res.ranking.forEach((x, i) => console.log(`  ${i + 1}位 点 ${p(x.score)}（±${p(x.margin)}） 環境 ${p(x.envWinRate)}・リーグ ${p(x.leagueWinRate)}${x.fromSuggestion ? '（今の提案）' : ''} ${x.team.filter(Boolean).map((m) => m.id).join(' ')}`));
+  console.log(`${rule}: ${seconds}秒 候補${res.candidates}個（評価した構築 ${res.explored}個）。今の提案の1位は ${p(res.baseline.winRate)}（±${p(res.baseline.margin)}・${res.baseline.games}試合）`);
+  logRanking(res.ranking);
   return { ...res, seconds, sourceVersion: meta.sourceVersion, dataDate: meta.date, settings: SETTINGS, generatedAt: new Date().toISOString() };
 }
 
+const p = (v) => `${(v * 100).toFixed(1)}%`;
+const teamKeyOf = (team) => teamKey(team.filter(Boolean));
+const logRanking = (ranking) => ranking.forEach((x, i) => console.log(`  ${i + 1}位 ${p(x.envWinRate)}（±${p(x.margin)}・${x.games}試合）${x.fromSuggestion ? '（今の提案）' : ''} ${x.team.filter(Boolean).map((m) => m.id).join(' ')}`));
+
+async function loadRuleDB(rule) {
+  const format = rule.split('-')[0];
+  const shared = { dex: await readJSON('pokedex.json'), moves: await readJSON('moves.json'), names: await readJSON('names-ja.json'), meta };
+  const base = makeDB({ ...(await readJSON(`${format}.json`)), ...shared, history: await readJSON(`history/${format}.json`, { dates: [], ranks: {} }) });
+  return rule.endsWith('-mega') ? megaRuleDB(base) : base;
+}
+
 // ルールごとの結果を、data/best-teams.json にまとめる（ないルールは前の値を残す）
+// 同じルールの結果がシードごとに複数あれば、それぞれの上位を集めて、別の相手の構築群とのふるい落としで比べ直す
 async function merge(results) {
   // ルールの一覧にないもの（前に計算していたシングルなど）は捨てる
   const out = { rules: Object.fromEntries(Object.entries(prev?.rules ?? {}).filter(([k]) => RULES.includes(k))) };
-  for (const r of results) out.rules[r.rule] = r.result;
+  for (const rule of RULES) {
+    const parts = results.filter((r) => r.rule === rule);
+    if (!parts.length) continue;
+    const first = parts[0].result;
+    if (parts.length === 1) {
+      out.rules[rule] = first;
+      continue;
+    }
+    const db = await loadRuleDB(rule);
+    const t = Date.now();
+    console.log(`${rule}: ${parts.length}個のシードの上位を比べ直します`);
+    const ranking = finalRace(db, parts.flatMap((r) => r.result.ranking.map((x) => x.team.filter(Boolean))), {
+      opponents: first.settings.opponents, keep: first.settings.keep, seed: 99, log: (s) => console.log(`${rule} ${s}`),
+    }).map((x) => ({ ...x, fromSuggestion: parts.some((r) => r.result.ranking.some((y) => y.fromSuggestion && teamKeyOf(y.team) === teamKeyOf(x.team))) }));
+    logRanking(ranking);
+    out.rules[rule] = {
+      ...first, ranking, team: ranking[0].team, winRate: ranking[0].envWinRate,
+      seeds: parts.map((r) => ({ seed: r.result.settings.seed, team: r.result.ranking[0].team, winRate: r.result.ranking[0].envWinRate, margin: r.result.ranking[0].margin })),
+      seconds: Math.max(...parts.map((r) => r.result.seconds)) + Math.round((Date.now() - t) / 1000),
+      generatedAt: new Date().toISOString(),
+    };
+  }
   // 全体の版は、一番新しいもの（画面はルールごとに版を確かめる）
   const latest = Object.values(out.rules).sort((a, b) => String(b.generatedAt).localeCompare(String(a.generatedAt)))[0];
   out.sourceVersion = latest?.sourceVersion ?? null;
   out.generatedAt = latest?.generatedAt ?? null;
   await writeJSON(OUT, out);
-  console.log(`まとめました: ${path.relative(ROOT, OUT)}（${results.map((r) => r.rule).join(', ') || '新しい結果なし'}）`);
+  console.log(`まとめました: ${path.relative(ROOT, OUT)}（${[...new Set(results.map((r) => r.rule))].join(', ') || '新しい結果なし'}）`);
 }
 
 if (flag('--merge')) {
@@ -95,7 +126,7 @@ if (flag('--merge')) {
     console.error(`--rule は ${RULES.join(' / ')} のどれか、--out に書き出すファイルを指定してください`);
     process.exit(1);
   }
-  await writeJSON(path.resolve(out), { rule, result: await compute(rule) });
+  await writeJSON(path.resolve(out), { rule, seed: SETTINGS.seed, result: await compute(rule) });
   console.log(`書き出しました: ${out}`);
 } else {
   const only = value('--only');

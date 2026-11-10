@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { makeDB, megaRuleDB, canMega } from '../js/data.js';
 import { buildOpponents, itemFits } from '../js/opponents.js';
-import { validTeam, evaluateTeam, searchBest } from '../js/best.js';
+import { validTeam, evaluateTeam, searchBest, race } from '../js/best.js';
 import { memberWithItem } from '../js/team.js';
 
 const read = (f) => JSON.parse(readFileSync(new URL(`../data/${f}`, import.meta.url), 'utf8'));
@@ -45,16 +45,20 @@ describe('一番の構築の探索', () => {
     expect(evaluateTeam(singles, team, opp, { battles: 2, seed: 4 })).toBe(evaluateTeam(singles, team, opp, { battles: 2, seed: 4 }));
   });
   it('短い設定でも、規則を守った構築を返す', () => {
-    const r = searchBest(doubles, { opponents: 5, battles: 2, finalBattles: 2, iterations: 6, rounds: 2, keep: 2, leagueBattles: 2, patience: 3, seed: 1 });
+    const r = searchBest(doubles, { opponents: 8, searchOpponents: 4, battles: 1, iterations: 6, candidates: 6, raceBattles: 1, keep: 2, patience: 3, seed: 1 });
     expect(validTeam(doubles, r.team.filter(Boolean))).toBe(true);
     expect(r.winRate).toBeGreaterThan(0);
-    expect(r.evaluations).toBeGreaterThan(1);
-    // リーグの上位を、点（環境とリーグの勝率の平均）の順に並べる
-    expect(r.ranking.length).toBeGreaterThan(1);
-    for (let i = 1; i < r.ranking.length; i++) expect(r.ranking[i - 1].score).toBeGreaterThanOrEqual(r.ranking[i].score);
-    for (const x of r.ranking) {
-      expect(x.score).toBeCloseTo((x.envWinRate + x.leagueWinRate) / 2);
-      expect(x.margin).toBeGreaterThan(0);
-    }
+    expect(r.explored).toBeGreaterThan(1);
+    // 最後まで残った上位を、勝率の順に並べる
+    expect(r.ranking).toHaveLength(2);
+    expect(r.ranking[0].envWinRate).toBeGreaterThanOrEqual(r.ranking[1].envWinRate);
+    for (const x of r.ranking) expect(x.margin).toBeGreaterThan(0);
+  });
+  it('ふるい落としでは、残った候補ほど多く試合する', () => {
+    const opp = buildOpponents(doubles, { n: 6, seed: 5 }).map((o) => ({ ...o, picksVs: new Map(), picksMine: new Map() }));
+    const teams = buildOpponents(doubles, { n: 6, seed: 6 }).map((o) => o.team);
+    const raced = race(doubles, teams, opp, { battles: 1, keep: 2, seed: 3 });
+    expect(raced[0].games).toBeGreaterThan(raced.at(-1).games);
+    expect(raced[0].games).toBe(raced[1].games);
   });
 });

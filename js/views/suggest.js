@@ -115,7 +115,7 @@ export function renderSuggest(app, root) {
   const modeBody = {
     best: pre
       ? [h('p', { class: 'muted small' }, pre.ranking
-        ? `選出からターンを追って戦わせるシミュレーションで、ありそうな相手の構築${pre.opponents}個への勝率（環境・使用率の重み付き）と、候補どうしの総当たり（リーグ${pre.leagueSize}構築）の勝率の平均が高い順に並べています（${dateTime(pre.generatedAt)} に計算）。今の提案の1位は、環境 ${pct(pre.baseline.winRate)}・リーグ ${pct(pre.baseline.leagueWinRate)}。`
+        ? `選出からターンを追って戦わせるシミュレーションで、ありそうな相手の構築${pre.opponents}個への勝率（使用率の重み付き）が高い順に並べています。有望な候補ほど多く試合させて絞り込み、上位は数千試合で比べています（${dateTime(pre.generatedAt)} に計算${pre.seeds ? `。探索を${pre.seeds.length}通りのシードでまわし、それぞれの上位を比べ直しています` : ''}）。今の提案の1位は ${pct(pre.baseline.winRate)}。`
         : `ありそうな相手の構築${pre.opponents}個と、選出からターンを追って戦わせ、使用率で重みを付けた勝率が一番高い構築です（${dateTime(pre.generatedAt)} に計算。勝率 ${pct(pre.winRate)}、もとの提案の構築は ${pct(pre.baseline.winRate)}）。`),
         // シミュレーターの調整が済んだら消す
         h('p', { class: 'warnings' }, '勝率はシミュレーターの調整中の値で、高めに出ています。')]
@@ -218,14 +218,14 @@ const dateTime = (iso) => {
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
-// シミュレーターの結果（点・環境とリーグの勝率・苦手な相手）。top は 1 位の結果
+// シミュレーターの結果（勝率とぶれの幅・苦手な相手）。top は 1 位の結果
 function simLines(db, x, top) {
-  if (x.score == null) return h('span', { class: 'reason' }, `環境の勝率 ${pct(x.envWinRate)}`);
+  if (x.margin == null) return h('span', { class: 'reason' }, `勝率 ${pct(x.envWinRate)}`);
   const names = (ids) => ids.map((id) => jaPokemon(db, id)).join('・');
-  const close = x !== top && top.score - x.score < Math.max(x.margin, top.margin);
+  // 1 位との差が、ぶれの幅より小さいか
+  const close = x !== top && top.envWinRate - x.envWinRate < Math.hypot(x.margin, top.margin);
   return [
-    h('span', { class: 'reason' }, `点 ${pct(x.score)}（±${pct(x.margin)}）＝ 環境 ${pct(x.envWinRate)}・リーグ ${pct(x.leagueWinRate)}${x.fromSuggestion ? '（今の提案）' : ''}${close ? '。1位との差はぶれの範囲' : ''}`),
-    x.weakLeague?.length ? h('span', { class: 'reason bad' }, `リーグで苦手: ${x.weakLeague.map((w) => `${names(w.ids.slice(0, 3))}など（${pct(w.rate)}）`).join(' / ')}`) : null,
-    x.weakEnv?.length ? h('span', { class: 'reason bad' }, `環境で苦手: ${x.weakEnv.map((w) => `${names(w.ids)}の構築（${pct(w.rate)}）`).join(' / ')}`) : null,
+    h('span', { class: 'reason' }, `勝率 ${pct(x.envWinRate)}（±${pct(x.margin)}・${x.games}試合）${x.fromSuggestion ? '（今の提案）' : ''}${close ? '。1位との差はぶれの範囲' : ''}`),
+    x.weakEnv?.length ? h('span', { class: 'reason bad' }, `苦手な相手: ${x.weakEnv.map((w) => `${names(w.ids)}の構築（${pct(w.rate)}）`).join(' / ')}`) : null,
   ];
 }
