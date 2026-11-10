@@ -331,6 +331,21 @@ export function trendAttackType(mv, name, b) {
   return power >= TREND_MIN_POWER ? mv.type : null;
 }
 
+// 攻撃のタイプごとに、上位 n 体のうち弱点（×2 以上）になる数と、半減以下（無効を含む）になる数。通りやすい順
+export function typeReach(db, n) {
+  const foes = topMeta(db, n).map((id) => metaBattler(db, id));
+  return TYPES.map((type) => {
+    let weak = 0;
+    let resist = 0;
+    for (const f of foes) {
+      const m = defenseProfile(f.types, f.ability)[type];
+      if (m > 1) weak++;
+      else if (m < 1) resist++;
+    }
+    return { type, weak, resist };
+  }).sort((a, b) => (b.weak - b.resist) - (a.weak - a.resist) || b.weak - a.weak);
+}
+
 // ---------- すばやさ ----------
 
 export function speedList(db, battlers, n = 40) {

@@ -271,6 +271,18 @@ select:disabled { opacity: 0.6; }
 .combo-list li:hover, .combo-list li.active { background: var(--line); }
 .combo-sub { color: var(--muted); font-size: 12px; }
 
+/* 攻撃のタイプの通り（左に半減以下、右に弱点） */
+.reach-head, .reach-row { display: grid; grid-template-columns: 5.6em 1fr 1fr; gap: 0 2px; align-items: center; }
+.reach-head span:nth-child(2) { text-align: right; padding-right: 6px; }
+.reach-head span:nth-child(3) { padding-left: 6px; }
+.reach-row { padding: 2px 0; font-size: 13px; }
+.reach-half { display: flex; align-items: center; gap: 4px; height: 14px; }
+.reach-half.resist { flex-direction: row-reverse; }
+.reach-bar { height: 8px; border-radius: 4px; }
+.reach-half.weak .reach-bar { background: var(--blue); }
+.reach-half.resist .reach-bar { background: var(--bad); }
+.reach-num { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; }
+
 /* バー */
 .bar-row { display: grid; grid-template-columns: minmax(0, 9em) 1fr 3.6em; gap: 8px; align-items: center; font-size: 13px; padding: 2px 0; }
 .bar-row:has(.bar-sub) { grid-template-columns: minmax(0, 9em) 1fr 3.6em auto; }

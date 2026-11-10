@@ -5,7 +5,7 @@ import { calcStats, speedTiers, validateSpread } from '../js/stats.js';
 import { calcDamage, koChance, koLabel } from '../js/damage.js';
 import { makeDB, megaForItem, battleForm, searchPokemon, searchNames, toKatakana, jaPokemon } from '../js/data.js';
 import { defaultMember, memberBattler, encodeTeam, decodeTeam, toShowdown, fromShowdown, normalizeTeam } from '../js/team.js';
-import { duel, threatReport, suggestTeammates, selectionPlan, defenseTable, offenseTable, speedList, metaBattler, trendAttackType } from '../js/analysis.js';
+import { duel, threatReport, suggestTeammates, selectionPlan, defenseTable, offenseTable, speedList, metaBattler, trendAttackType, typeReach } from '../js/analysis.js';
 
 const read = (f) => JSON.parse(readFileSync(new URL(`../data/${f}`, import.meta.url), 'utf8'));
 const shared = { dex: read('pokedex.json'), moves: read('moves.json'), names: read('names-ja.json'), meta: read('meta.json') };
@@ -170,6 +170,12 @@ describe('環境の傾向', () => {
     expect(trendAttackType({ type: 'Water', cat: 'Physical', power: 25, multihit: [2, 5] }, 'X', {})).toBe('Water');
     expect(trendAttackType(doubles.moves['Weather Ball'], 'Weather Ball', { ability: 'Drought' })).toBe('Fire');
     expect(trendAttackType(doubles.moves['Weather Ball'], 'Weather Ball', { ability: '' })).toBeNull();
+  });
+  it('攻撃のタイプの通りは 18 タイプで、通りやすい順', () => {
+    const r = typeReach(doubles, 30);
+    expect(r).toHaveLength(18);
+    for (const x of r) expect(x.weak + x.resist).toBeLessThanOrEqual(30);
+    for (let i = 1; i < r.length; i++) expect(r[i - 1].weak - r[i - 1].resist).toBeGreaterThanOrEqual(r[i].weak - r[i].resist);
   });
 });
 

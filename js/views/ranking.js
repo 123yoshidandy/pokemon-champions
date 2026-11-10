@@ -1,7 +1,7 @@
 // 環境（使用率の順位）
 import { h, mount, typeBadges, typeBadge, iconButton, bar } from '../ui.js';
 import { jaPokemon, jaItem, usageOf, isMegaStone, battleForm, moveData, toKatakana } from '../data.js';
-import { metaBattler, trendAttackType, TREND_MIN_POWER } from '../analysis.js';
+import { metaBattler, trendAttackType, typeReach, TREND_MIN_POWER } from '../analysis.js';
 import { TYPES, TYPE_JA } from '../types.js';
 import { addToTeam, dataDate, formatLabel, getTopN, topNSelect } from './common.js';
 import * as store from '../store.js';
@@ -132,5 +132,20 @@ function trendGrid(db, n) {
         h('p', { class: 'muted small' }, `威力${TREND_MIN_POWER}未満の技（ねこだましなど）と、こごえるかぜ・バークアウトは数えない`),
         sorted(atkType).slice(0, 8).map(([t, v]) => bar((v / maxAtk) * 100, TYPE_JA[t], null, '')),
       ),
+      reach(db, n),
+  );
+}
+
+// 攻撃のタイプの通り（左に半減以下の数、右に弱点の数）
+function reach(db, n) {
+  const rows = typeReach(db, n);
+  const max = Math.max(1, ...rows.map((r) => Math.max(r.weak, r.resist)));
+  const half = (v, side) => h('span', { class: `reach-half ${side}` },
+    h('span', { class: 'reach-bar', style: { width: `${(v / max) * 100}%` } }),
+    h('span', { class: 'reach-num' }, v || ''));
+  return h('div', { class: 'reach' },
+    h('h3', {}, '攻撃のタイプの通り'),
+    h('div', { class: 'reach-head muted small' }, h('span', {}), h('span', {}, '半減以下'), h('span', {}, '弱点')),
+    rows.map((r) => h('div', { class: 'reach-row' }, typeBadge(r.type, true), half(r.resist, 'resist'), half(r.weak, 'weak'))),
   );
 }
