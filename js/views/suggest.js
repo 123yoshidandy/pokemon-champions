@@ -113,7 +113,7 @@ export function renderSuggest(app, root) {
       ? [h('p', { class: 'muted small' }, `ありそうな相手の構築${pre.opponents}個と、選出からターンを追って戦わせ、使用率で重みを付けた勝率が一番高い構築です（${dateTime(pre.generatedAt)} に計算）。探索に使っていない相手の構築${pre.opponents}個と${pre.settings.finalBattles}回ずつ戦わせた勝率は ${pct(pre.winRate)}（もとの提案の構築は ${pct(pre.baseline.winRate)}）。`),
         // シミュレーターの調整が済んだら消す
         h('p', { class: 'warnings' }, '勝率はシミュレーターの調整中の値で、高めに出ています。')]
-      : [h('p', { class: 'muted small' }, `条件を選ばずに、上位${BEST_OPTS.pool}体から、上位${BEST_OPTS.threats}体に一番勝てる構築を1つに絞ります。${precomputed.data === undefined ? '' : '（対戦のシミュレーションによる計算が、まだこのデータにはないので、この場で簡単に計算します）'}`)],
+      : [h('p', { class: 'muted small' }, `条件を選ばずに、上位${BEST_OPTS.pool}体から、上位${BEST_OPTS.threats}体に一番勝てる構築を1つに絞ります。${precomputed.data === undefined ? '' : db.doubles ? '（対戦のシミュレーションによる計算が、まだこのデータにはないので、この場で簡単に計算します）' : '（シングルは、対戦のシミュレーションによる計算をしていないので、この場で簡単に計算します）'}`)],
     custom: [
       h('h2', {}, '軸'),
       team.length

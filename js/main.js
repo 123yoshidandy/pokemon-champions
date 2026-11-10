@@ -15,7 +15,9 @@ export const app = {
   db: null,
   format: store.getFormat(),
   // メガシンカバトル
-  megaRule: store.getMegaRule(),
+  // メガシンカバトルの切り替え（保存した値）。メガシンカバトルはダブル専用なので、効くのはダブルのときだけ
+  megaPref: store.getMegaRule(),
+  get megaRule() { return this.megaPref && this.format === 'doubles'; },
   // 構築・保存した構築・選出の相手を、形式とルールごとに分けて保存するときの名前
   get key() { return this.megaRule ? `${this.format}-mega` : this.format; },
   go: (path) => { location.hash = path; },
@@ -68,19 +70,21 @@ for (const b of document.querySelectorAll('.format-switch button[data-format]'))
   b.addEventListener('click', async () => {
     if (b.dataset.format === app.format) return;
     await setFormat(b.dataset.format);
+    showRule();
     lastHash = null;
     route();
   });
 }
 const ruleBtn = document.querySelector('.rule-toggle');
 const showRule = () => {
+  ruleBtn.hidden = app.format !== 'doubles';
   ruleBtn.classList.toggle('on', app.megaRule);
   ruleBtn.setAttribute('aria-pressed', String(app.megaRule));
   document.body.classList.toggle('mega-rule', app.megaRule);
 };
 ruleBtn.addEventListener('click', async () => {
-  app.megaRule = !app.megaRule;
-  store.setMegaRule(app.megaRule);
+  app.megaPref = !app.megaPref;
+  store.setMegaRule(app.megaPref);
   showRule();
   await setFormat(app.format);
   lastHash = null;

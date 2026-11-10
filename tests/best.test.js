@@ -20,8 +20,8 @@ describe('相手の構築群', () => {
     }
     expect(buildOpponents(doubles, { n: 20, seed: 3 }).map((o) => o.team.map((m) => m.id))).toEqual(opp.map((o) => o.team.map((m) => m.id)));
   });
-  it('メガシンカバトルでは、メガシンカできる種族だけ', () => {
-    const db = megaRuleDB(singles);
+  it('メガシンカバトル（ダブル専用）では、メガシンカできる種族だけ', () => {
+    const db = megaRuleDB(doubles);
     for (const o of buildOpponents(db, { n: 10, seed: 1 })) for (const m of o.team) expect(canMega(db, m.id)).toBe(true);
   });
 });

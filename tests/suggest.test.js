@@ -37,7 +37,7 @@ describe('構築の提案', () => {
     }
   });
   it('メガシンカバトルでは、6体ともメガシンカできる種族で、メガシンカは1体', () => {
-    const db = megaRuleDB(singles);
+    const db = megaRuleDB(doubles);
     for (const s of suggestTeams(db, [], { pool: 40, threats: 30, results: 2 })) {
       expectValid(db, s);
       for (const m of s.team) expect(canMega(db, m.id)).toBe(true);

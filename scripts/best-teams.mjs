@@ -3,13 +3,13 @@
 // 手元の data/ だけを使う（取得はしない）。データの版と設定が前回と同じルールは、計算し直さない。
 //
 // 使い方:
-//   node scripts/best-teams.mjs [--force] [--quick] [--only <ルール>]   4 つのルールを順に計算して data/best-teams.json に書く
+//   node scripts/best-teams.mjs [--force] [--quick] [--only <ルール>]   ルールを順に計算して data/best-teams.json に書く
 //   node scripts/best-teams.mjs --rule <ルール> --out <ファイル> [--force] [--quick]
 //                                                            1 つのルールだけ計算して、結果をファイルに書く（同時に動かすとき）
 //   node scripts/best-teams.mjs --merge <ファイル...>         ルールごとの結果を data/best-teams.json にまとめる（ないルールは前の値を残す）
 //   --force  データの版と設定が前回と同じでも計算し直す
 //   --quick  試合数と探索の回数を減らして、短く通す（手元で確かめるとき。data/best-teams.json には書かない）
-//   ルール: doubles / singles / doubles-mega / singles-mega
+//   ルール: doubles / doubles-mega（ダブルの考察が目的なので、シングルは計算しない。メガシンカバトルはダブル専用）
 
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -30,8 +30,8 @@ const quick = flag('--quick');
 // （ルールどうしで状態を共有しないので、同時に動かしても、順に動かしたときと同じ結果になる）
 const SETTINGS = quick
   ? { opponents: 20, battles: 4, finalBattles: 8, iterations: 40, patience: 15, seed: 1 }
-  : { opponents: 80, battles: 8, finalBattles: 40, iterations: 500, patience: 60, seed: 1 };
-const RULES = ['doubles', 'singles', 'doubles-mega', 'singles-mega'];
+  : { opponents: 100, battles: 10, finalBattles: 60, iterations: 800, patience: 80, seed: 1 };
+const RULES = ['doubles', 'doubles-mega'];
 
 const readJSON = async (f, fallback) => {
   try {
@@ -67,7 +67,8 @@ async function compute(rule) {
 
 // ルールごとの結果を、data/best-teams.json にまとめる（ないルールは前の値を残す）
 async function merge(results) {
-  const out = { rules: { ...(prev?.rules ?? {}) } };
+  // ルールの一覧にないもの（前に計算していたシングルなど）は捨てる
+  const out = { rules: Object.fromEntries(Object.entries(prev?.rules ?? {}).filter(([k]) => RULES.includes(k))) };
   for (const r of results) out.rules[r.rule] = r.result;
   // 全体の版は、一番新しいもの（画面はルールごとに版を確かめる）
   const latest = Object.values(out.rules).sort((a, b) => String(b.generatedAt).localeCompare(String(a.generatedAt)))[0];

@@ -31,7 +31,7 @@ jobs:
           git push
 
   # 一番の構築を、対戦のシミュレーションで探す（手元のデータだけを使う。数十分かかる）
-  # 4つのルールを同時に計算し、結果を artifact で受け渡して、最後のジョブでまとめてコミットする
+  # ダブルとダブルのメガシンカバトルを同時に計算し、結果を artifact で受け渡して、最後のジョブでまとめてコミットする
   best-teams:
     # シミュレーターの調整中は止めておく（作りかけのまま毎日計算してコミットしないように）。調整が済んだら、この行を消す
     if: false
@@ -42,7 +42,7 @@ jobs:
       # どれか1つが失敗しても、ほかのルールは続ける
       fail-fast: false
       matrix:
-        rule: [doubles, singles, doubles-mega, singles-mega]
+        rule: [doubles, doubles-mega]
     steps:
       # 1つ目のジョブがコミットした、最新のデータを使う
       - uses: actions/checkout@v4
