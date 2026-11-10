@@ -4,7 +4,7 @@
 import { TYPES, defenseProfile } from './types.js';
 import { usageOf, isMegaStone, moveData, isAttack } from './data.js';
 import { defaultMember, memberBattler, normalizeTeam, TEAM_SIZE } from './team.js';
-import { duel, topMeta, rankWeight } from './analysis.js';
+import { duel, topMeta, rankWeight, teamSupport, supportNames } from './analysis.js';
 
 // ---------- スタイル ----------
 
@@ -56,6 +56,33 @@ export function detectStyles(db, battlers) {
 
 // ---------- 候補の下ごしらえ ----------
 
+// 支援ごとの対面の条件（ダブルだけ）。上がり幅を候補ごとに計算しておき、構築の支援に合わせて足す
+const SUPPORT_OPTS = {
+  tailwind: { tailwind: true },
+  trickRoom: { trickRoom: true },
+  screens: { reflect: true, lightScreen: true },
+  intimidate: { intimidate: true },
+  fakeOut: { fakeOut: true },
+};
+
+// 構築の支援（壁は、リフレクターとひかりのかべの片方なら半分とみなす）
+function supportOf(db, team) {
+  const s = teamSupport(db, team.map((c) => c.battler));
+  return { ...s, screens: (s.reflect ? 0.5 : 0) + (s.lightScreen ? 0.5 : 0) };
+}
+
+// 候補 c の、相手 j への有利さ（構築の支援 sup を入れる）
+function supportedScore(c, j, sup) {
+  let s = c.scores[j];
+  if (!c.deltas) return s;
+  const d = c.deltas;
+  s += Math.max(0, sup.tailwind ? d.tailwind[j] : 0, sup.trickRoom ? d.trickRoom[j] : 0);
+  if (sup.screens) s += sup.screens * d.screens[j];
+  if (sup.intimidate) s += d.intimidate[j];
+  if (sup.fakeOut) s += d.fakeOut[j];
+  return Math.max(-1, Math.min(1, s));
+}
+
 // 候補ごとに、メガストーンあり／なしの型と、上位の相手への有利さを計算しておく
 function prepare(db, ids, threats) {
   const cands = new Map();
@@ -67,12 +94,18 @@ function prepare(db, ids, threats) {
     if (isMegaStone(db, id, main.item)) variants.push(defaultMember(db, id, [], { noMega: true }));
     cands.set(id, variants.map((member) => {
       const b = memberBattler(db, member);
+      const scores = threats.map((t) => (t.id === id ? 0 : duel(db, b, t).score));
+      const deltas = db.doubles
+        ? Object.fromEntries(Object.entries(SUPPORT_OPTS).map(([k, opts]) =>
+          [k, threats.map((t, j) => (t.id === id ? 0 : duel(db, b, t, opts).score - scores[j]))]))
+        : null;
       return {
         id,
         member,
         battler: b,
         mega: isMegaStone(db, id, member.item),
-        scores: threats.map((t) => (t.id === id ? 0 : duel(db, b, t).score)),
+        scores,
+        deltas,
         prof: defenseProfile(b.types, b.ability),
       };
     }));
@@ -87,11 +120,12 @@ function evaluate(db, team, ctx) {
   // 上位の相手への有利さ（一番有利なメンバー + 2番手を少し）
   let cover = 0;
   const holes = [];
+  const sup = supportOf(db, team);
   threats.forEach((t, j) => {
     let best = -1;
     let second = -1;
     for (const c of team) {
-      const s = c.scores[j];
+      const s = supportedScore(c, j, sup);
       if (s > best) [best, second] = [s, best];
       else if (s > second) second = s;
     }
@@ -141,7 +175,7 @@ function evaluate(db, team, ctx) {
 
   const popularity = team.reduce((a, c) => a + rankWeight(db.rankOf.get(c.id)?.pos), 0) * 0.01;
   const base = cover - defense + Math.min(pairs.length, 5) * 0.02 + styleBonus + popularity;
-  return { score: base - reuse, base, cover, holes, stacked, pairs, styleBonus };
+  return { score: base - reuse, base, cover, holes, stacked, pairs, styleBonus, support: supportNames(sup) };
 }
 
 // ---------- 探索 ----------

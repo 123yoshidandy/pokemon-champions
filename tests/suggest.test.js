@@ -19,6 +19,10 @@ function expectValid(db, s) {
 }
 
 describe('構築の提案', () => {
+  it('ダブルでは、味方を助ける技や特性を持つメンバーが入る', () => {
+    const r = suggestTeams(doubles, [], { pool: 40, threats: 30, results: 2 });
+    for (const s of r) expect(s.eval.support.length).toBeGreaterThan(0);
+  });
   it('おまかせで、条件を守った構築を複数出す', () => {
     const r = suggestTeams(doubles, [], { pool: 40, threats: 30, results: 3 });
     expect(r.length).toBeGreaterThanOrEqual(2);

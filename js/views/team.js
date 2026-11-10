@@ -4,7 +4,7 @@ import { jaPokemon, jaItem, jaAbility, jaMove, jaNature, usageOf, allUsed, battl
 import { STATS, STAT_JA, NATURES, SP_TOTAL, SP_MAX, validateSpread } from '../stats.js';
 import { TYPE_JA } from '../types.js';
 import { defaultMember, memberBattler, encodeTeam, decodeTeam, toShowdown, fromShowdown, toJapaneseText, normalizeTeam } from '../team.js';
-import { threatReport, suggestTeammates, defenseTable, offenseTable, speedList } from '../analysis.js';
+import { threatReport, suggestTeammates, defenseTable, offenseTable, speedList, teamSupport, supportNames } from '../analysis.js';
 import * as store from '../store.js';
 import { formatLabel } from './common.js';
 
@@ -346,6 +346,7 @@ function threatsView(app, battlers, root) {
   const db = app.db;
   const live = battlers.filter(Boolean);
   const report = threatReport(db, battlers, ui.threatN);
+  const sup = supportNames(teamSupport(db, battlers));
   const holes = report.filter((r) => r.best <= 0);
   const nSel = h('select', { onchange: (e) => { ui.threatN = Number(e.target.value); store.setPref('threatN', ui.threatN); draw(app, root); } },
     [20, 30, 50, 80].map((n) => h('option', { value: n, selected: n === ui.threatN }, `上位${n}体`)));
@@ -353,7 +354,7 @@ function threatsView(app, battlers, root) {
   return h('div', {},
     h('div', { class: 'row' },
       nSel,
-      h('span', { class: 'muted small' }, 'よく使われる型どうしで、先に倒せる方を有利としています'),
+      h('span', { class: 'muted small' }, `よく使われる型どうしで、先に倒せる方を有利としています${sup.length ? `（味方の${sup.join('・')}を入れて比べています）` : ''}`),
     ),
     holes.length
       ? h('div', { class: 'holes' },

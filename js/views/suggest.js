@@ -64,7 +64,7 @@ export function renderSuggest(app, root) {
   mount(root,
     h('section', { class: 'page-head' },
       h('h1', {}, `おすすめの構築（${formatLabel(db)}）`),
-      h('p', { class: 'muted small' }, '環境の上位の相手に有利なメンバーがそろい、弱点が重なりにくく、よく組まれる組み合わせを優先して6体を選びます。'),
+      h('p', { class: 'muted small' }, `環境の上位の相手に有利なメンバーがそろい、弱点が重なりにくく、よく組まれる組み合わせを優先して6体を選びます。${db.doubles ? 'おいかぜ・トリックルーム・壁・いかく・ねこだましなど、味方を助ける技や特性の効果も入れて比べます。' : ''}`),
     ),
     h('section', { class: 'card' },
       h('h2', {}, '軸'),
@@ -117,6 +117,7 @@ function results(app, db, list) {
           s.eval.holes.length
             ? `上位${threatsN}体のうち、有利なメンバーがいない相手: ${s.eval.holes.map((id) => jaPokemon(db, id)).join('、')}`
             : `上位${threatsN}体のどれにも、有利なメンバーがいる`),
+        s.eval.support.length ? h('span', { class: 'reason' }, `味方を助ける: ${s.eval.support.join('・')}`) : null,
         s.eval.stacked.length ? h('span', { class: 'reason bad' }, '弱点が重なる: ', s.eval.stacked.map((t) => typeBadge(t, true))) : null,
         s.eval.pairs.length
           ? h('span', { class: 'reason' }, `よく組まれる組み合わせ: ${s.eval.pairs.slice(0, 4).map(([a, b]) => `${jaPokemon(db, a)}・${jaPokemon(db, b)}`).join(' / ')}${s.eval.pairs.length > 4 ? ` ほか${s.eval.pairs.length - 4}組` : ''}`)

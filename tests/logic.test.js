@@ -5,7 +5,7 @@ import { calcStats, speedTiers, validateSpread, groupSpreads } from '../js/stats
 import { calcDamage, koChance, koLabel } from '../js/damage.js';
 import { makeDB, megaForItem, battleForm, searchPokemon, searchNames, toKatakana, jaPokemon, spriteUrls } from '../js/data.js';
 import { defaultMember, memberBattler, encodeTeam, decodeTeam, toShowdown, fromShowdown, normalizeTeam } from '../js/team.js';
-import { duel, threatReport, suggestTeammates, selectionPlan, defenseTable, offenseTable, speedList, metaBattler, trendAttackType, typeReach } from '../js/analysis.js';
+import { duel, threatReport, suggestTeammates, selectionPlan, defenseTable, offenseTable, speedList, metaBattler, trendAttackType, typeReach, teamSupport, supportedDuel } from '../js/analysis.js';
 
 const read = (f) => JSON.parse(readFileSync(new URL(`../data/${f}`, import.meta.url), 'utf8'));
 const shared = { dex: read('pokedex.json'), moves: read('moves.json'), names: read('names-ja.json'), meta: read('meta.json') };
@@ -201,6 +201,13 @@ describe('分析', () => {
     const d2 = duel(doubles, b, a);
     expect(Math.abs(d1.score)).toBeLessThanOrEqual(1);
     expect(d1.score).toBeCloseTo(-d2.score);
+  });
+  it('ダブルでは、構築の支援（おいかぜなど）で勝ち筋が増える。シングルでは入れない', () => {
+    const sup = teamSupport(doubles, battlers);
+    expect(sup.tailwind).toBe(true);
+    expect(teamSupport(singles, battlers)).toEqual({});
+    const foe = metaBattler(doubles, 'sneasler');
+    for (const b of battlers.filter(Boolean)) expect(supportedDuel(doubles, b, foe, sup).score).toBeGreaterThanOrEqual(duel(doubles, b, foe).score);
   });
   it('相性表は 18 タイプ', () => {
     expect(defenseTable(battlers)).toHaveLength(18);

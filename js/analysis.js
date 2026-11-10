@@ -169,6 +169,42 @@ export function duel(db, a, b, opts = {}) {
   return { score, a: ha.main.first, b: hb.main.first, turns, speedA: sa, speedB: sb, aFirst };
 }
 
+// ---------- 味方の支援（ダブル） ----------
+
+export const SUPPORT_LABEL = {
+  tailwind: 'おいかぜ', trickRoom: 'トリックルーム', reflect: 'リフレクター', lightScreen: 'ひかりのかべ',
+  intimidate: 'いかく', fakeOut: 'ねこだまし・このゆびとまれ',
+};
+
+// 構築の誰かが使える支援。ダブルでは、味方の対面すべてに入れる（シングルでは入れない）
+export function teamSupport(db, battlers) {
+  if (!db.doubles) return {};
+  const live = battlers.filter(Boolean);
+  const has = (m) => live.some((b) => b.moves.includes(m));
+  return {
+    tailwind: has('Tailwind'),
+    trickRoom: has('Trick Room'),
+    reflect: has('Reflect') || has('Aurora Veil'),
+    lightScreen: has('Light Screen') || has('Aurora Veil'),
+    intimidate: live.some((b) => b.ability === 'Intimidate'),
+    fakeOut: has('Fake Out') || has('Follow Me') || has('Rage Powder'),
+  };
+}
+
+export const supportNames = (sup) => Object.keys(SUPPORT_LABEL).filter((k) => sup[k]).map((k) => SUPPORT_LABEL[k]);
+
+// 支援を入れた対面。おいかぜとトリックルームは、その相手に有利な方を使う（使わない方がよければ使わない）
+export function supportedDuel(db, a, b, sup = {}) {
+  const { tailwind, trickRoom, ...rest } = sup;
+  let best = duel(db, a, b, rest);
+  for (const [on, key] of [[tailwind, 'tailwind'], [trickRoom, 'trickRoom']]) {
+    if (!on) continue;
+    const d = duel(db, a, b, { ...rest, [key]: true });
+    if (d.score > best.score) best = d;
+  }
+  return best;
+}
+
 // ---------- タイプ相性 ----------
 
 export function defenseTable(battlers) {
@@ -204,11 +240,13 @@ export function offenseTable(db, battlers) {
 // ---------- 環境への相性 ----------
 
 // 上位 n 体のそれぞれに、チームの誰が勝てるか
+// ダブルでは、構築の支援（おいかぜ・いかくなど）を入れて比べる
 export function threatReport(db, battlers, n = 30) {
   const team = battlers.filter(Boolean);
+  const sup = teamSupport(db, team);
   return topMeta(db, n).map((id) => {
     const foe = metaBattler(db, id);
-    const duels = team.map((m) => ({ id: m.id, ...duel(db, m, foe) }));
+    const duels = team.map((m) => ({ id: m.id, ...supportedDuel(db, m, foe, sup) }));
     const best = duels.length ? Math.max(...duels.map((d) => d.score)) : -1;
     const losing = duels.filter((d) => d.score < 0).length;
     return { id, pos: db.rankOf.get(id)?.pos, foe, duels, best, answers: duels.filter((d) => d.score > 0).length, losing };
@@ -222,7 +260,15 @@ export function suggestTeammates(db, team, { pool = 100, threats = 40, limit = 1
   const inTeam = new Set(team.filter(Boolean).map((m) => db.dex[m.id]?.base));
   const threatIds = topMeta(db, threats);
   const foes = threatIds.map((id) => metaBattler(db, id));
-  const teamBest = foes.map((f) => (members.length ? Math.max(...members.map((m) => duel(db, m, f).score)) : -1));
+  const sup = teamSupport(db, members);
+  // いまのメンバーの、相手ごとの一番の有利さ（支援の組み合わせごとに覚えておく）
+  const bestBySupport = new Map();
+  const membersBest = (s) => {
+    const k = JSON.stringify(s);
+    if (!bestBySupport.has(k)) bestBySupport.set(k, foes.map((f) => (members.length ? Math.max(...members.map((m) => supportedDuel(db, m, f, s).score)) : -1)));
+    return bestBySupport.get(k);
+  };
+  const teamBest = membersBest(sup);
   const def = defenseTable(members);
   const holes = def.filter((r) => r.weak > r.resist || r.danger).map((r) => r.type);
 
@@ -249,11 +295,14 @@ export function suggestTeammates(db, team, { pool = 100, threats = 40, limit = 1
     if (inTeam.has(db.dex[id]?.base)) continue;
     // 構築に入れるときと同じ型（持ち物を重ねない・メガストーンは1体だけ）で比べる
     const c = memberBattler(db, defaultMember(db, id, team.filter(Boolean)));
+    // 入れたあとの支援で、候補自身と、いまのメンバーの勝ち筋がどれだけ増えるか
+    const after = teamSupport(db, [...members, c]);
+    const mates = membersBest(after);
     let gain = 0;
     const newAnswers = [];
     foes.forEach((f, i) => {
       if (f.id === id) return;
-      const s = duel(db, c, f).score;
+      const s = Math.max(supportedDuel(db, c, f, after).score, mates[i]);
       const w = rankWeight(db.rankOf.get(f.id)?.pos);
       if (s > teamBest[i]) gain += (s - teamBest[i]) * w;
       if (s > 0 && teamBest[i] <= 0) newAnswers.push(f.id);
