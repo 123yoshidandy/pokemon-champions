@@ -140,16 +140,16 @@ const resultScore = ([hx, hy]) => {
 /**
  * a から見た対面の有利さ（-1〜1）。お互いに一番通る技で殴り合い、勝った方の残りHPが多いほど大きくする
  * （勝っても残りHPがわずかなら 0.2 に近く、無傷で勝てば 1）
- * @param opts 味方の支援 { tailwind, trickRoom, reflect, lightScreen, intimidate, fakeOut }
+ * @param opts 味方の支援 { tailwind, trickRoom, reflect, lightScreen, intimidate, fakeOut, redirect }
  *   tailwind: a のすばやさが 2 倍 / trickRoom: 遅い方が先に動く / reflect・lightScreen: a が受けるダメージが減る
- *   intimidate: b のこうげきが 1 段階下がる / fakeOut: b は 1 ターン目に動けない
+ *   intimidate: b のこうげきが 1 段階下がる / fakeOut・redirect: b は 1 ターン目に a を攻撃できない
  */
 export function duel(db, a, b, opts = {}) {
   // お互いの特性のいかく（場に出たときに相手に効く）
   const A = b.ability === 'Intimidate' ? intimidated(a) : a;
   const B = a.ability === 'Intimidate' || opts.intimidate ? intimidated(b) : b;
   const ha = attackPlan(db, A, B, {});
-  const hb = { ...attackPlan(db, B, A, { reflect: opts.reflect, lightScreen: opts.lightScreen }), skipFirst: !!opts.fakeOut };
+  const hb = { ...attackPlan(db, B, A, { reflect: opts.reflect, lightScreen: opts.lightScreen }), skipFirst: !!(opts.fakeOut || opts.redirect) };
   const sa = speedOf(a) * (opts.tailwind ? 2 : 1);
   const sb = speedOf(b);
   const aFirst = opts.trickRoom ? sa < sb : sa > sb;
@@ -173,7 +173,7 @@ export function duel(db, a, b, opts = {}) {
 
 export const SUPPORT_LABEL = {
   tailwind: 'おいかぜ', trickRoom: 'トリックルーム', reflect: 'リフレクター', lightScreen: 'ひかりのかべ',
-  intimidate: 'いかく', fakeOut: 'ねこだまし・このゆびとまれ',
+  intimidate: 'いかく', fakeOut: 'ねこだまし', redirect: 'このゆびとまれ・いかりのこな',
 };
 
 // 構築の誰かが使える支援。ダブルでは、味方の対面すべてに入れる（シングルでは入れない）
@@ -187,7 +187,9 @@ export function teamSupport(db, battlers) {
     reflect: has('Reflect') || has('Aurora Veil'),
     lightScreen: has('Light Screen') || has('Aurora Veil'),
     intimidate: live.some((b) => b.ability === 'Intimidate'),
-    fakeOut: has('Fake Out') || has('Follow Me') || has('Rage Powder'),
+    fakeOut: has('Fake Out'),
+    // 攻撃を引きつけるので、ねこだましと同じく、相手は1ターン目に味方を攻撃できない
+    redirect: has('Follow Me') || has('Rage Powder'),
   };
 }
 

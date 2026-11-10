@@ -128,15 +128,27 @@ function supportedScore(c, j, sup) {
   s += Math.max(0, sup.tailwind ? d.tailwind[j] : 0, sup.trickRoom ? d.trickRoom[j] : 0);
   if (sup.screens) s += sup.screens * d.screens[j];
   if (sup.intimidate) s += d.intimidate[j];
-  if (sup.fakeOut) s += d.fakeOut[j];
+  if (sup.fakeOut || sup.redirect) s += d.fakeOut[j];
   return Math.max(-1, Math.min(1, s));
 }
 
+// 計算した候補を、データ・相手の数・スタイルごとに覚えておく（提案を出し直すときや、軸を変えて何度も出すときに使い回す）
+const prepared = new WeakMap();
+
 // 候補ごとに、メガストーンあり／なしの型と、上位の相手への有利さを計算しておく
 function prepare(db, ids, threats, style = '') {
+  if (!prepared.has(db)) prepared.set(db, new Map());
+  const memoKey = `${threats.length}|${style}`;
+  const byKey = prepared.get(db);
+  if (!byKey.has(memoKey)) byKey.set(memoKey, new Map());
+  const memo = byKey.get(memoKey);
   const cands = new Map();
   for (const id of ids) {
     if (!db.dex[id] || cands.has(id)) continue;
+    if (memo.has(id)) {
+      cands.set(id, memo.get(id));
+      continue;
+    }
     const variants = [];
     const main = styleMember(db, defaultMember(db, id), style);
     variants.push(main);
@@ -158,6 +170,7 @@ function prepare(db, ids, threats, style = '') {
         prof: defenseProfile(b.types, b.ability),
       };
     }));
+    memo.set(id, cands.get(id));
   }
   return cands;
 }
@@ -305,4 +318,60 @@ export function suggestTeams(db, axis = [], { pool = 60, threats: threatN = 40, 
     const battlers = members.map((m) => memberBattler(db, m));
     return { team: normalizeTeam(members), battlers, eval: ev, styles: detectStyles(db, battlers) };
   });
+}
+
+// ---------- いちばんのおすすめ ----------
+
+// 条件を選ばずに、候補・相手・探索の幅を広げて、一番点の高い構築を1つに絞る
+export const BEST_OPTS = { pool: 100, threats: 60, beam: 48, results: 1 };
+export const bestTeam = (db) => suggestTeams(db, [], BEST_OPTS)[0] ?? null;
+
+// ---------- マイナーなポケモンを軸に ----------
+
+// 上位 MINOR_FROM 体の外を「マイナー」とし、MINOR_TO 位までから軸を探す
+export const MINOR_FROM = 50;
+const MINOR_TO = 150;
+
+/**
+ * マイナーなポケモンのうち、上位の相手に勝てる数が多く、特に上位のポケモンがあまり勝てない相手に勝てるものを選ぶ
+ * @returns [{ id, score, answers: 勝てる上位の相手の id }]
+ */
+export function minorAxes(db, { threats: threatN = 40, style = '', n = 5 } = {}) {
+  const threatIds = topMeta(db, threatN);
+  const threatBattlers = threatIds.map((id) => memberBattler(db, defaultMember(db, id)));
+  const weights = threatIds.map((id) => rankWeight(db.rankOf.get(id)?.pos));
+  const major = prepare(db, topMeta(db, MINOR_FROM), threatBattlers, style);
+  const minorIds = db.ranking.filter((r) => r.pos > MINOR_FROM && r.pos <= MINOR_TO && db.usage[r.id]).map((r) => r.id);
+  const minor = prepare(db, minorIds, threatBattlers, style);
+  // 相手ごとに、上位のポケモンのうち有利なものの割合（少ないほど、その相手に勝てることの値打ちが高い）
+  const majorList = [...major.values()].map((v) => v[0]);
+  const answered = threatIds.map((_, j) => majorList.filter((c) => c.scores[j] > 0).length / Math.max(1, majorList.length));
+  const list = [...minor.values()].map((variants) => {
+    const c = variants[0];
+    let score = 0;
+    const answers = [];
+    threatIds.forEach((tid, j) => {
+      const s = c.scores[j];
+      if (s <= 0) return;
+      score += weights[j] * s * (0.5 + (1 - answered[j]));
+      answers.push(tid);
+    });
+    return { id: c.id, score, answers };
+  });
+  // 同じポケモンの別のすがたは、1つだけにする
+  const seen = new Set();
+  return list.sort((a, b) => b.score - a.score).filter((x) => {
+    const base = db.dex[x.id].base;
+    if (seen.has(base)) return false;
+    seen.add(base);
+    return true;
+  }).slice(0, n);
+}
+
+// マイナーなポケモンを1体ずつ軸にして、構築を1つずつ出す（軸以外はマイナーでなくてよい）
+export function minorAxisTeams(db, { pool = 60, threats = 40, style = '', n = 5 } = {}) {
+  return minorAxes(db, { threats, style, n }).map((axis) => {
+    const t = suggestTeams(db, [axis.id], { pool, threats, style, results: 1 })[0];
+    return t ? { ...t, axis } : null;
+  }).filter(Boolean);
 }

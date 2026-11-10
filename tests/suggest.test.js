@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { makeDB, isMegaStone } from '../js/data.js';
-import { suggestTeams, isSetter, STYLES, stylesFor, styleMember } from '../js/suggest.js';
+import { suggestTeams, isSetter, STYLES, stylesFor, styleMember, bestTeam, minorAxisTeams, MINOR_FROM } from '../js/suggest.js';
 import { memberBattler } from '../js/team.js';
 
 const read = (f) => JSON.parse(readFileSync(new URL(`../data/${f}`, import.meta.url), 'utf8'));
@@ -19,6 +19,20 @@ function expectValid(db, s) {
 }
 
 describe('構築の提案', () => {
+  it('おまかせで1つに絞る', () => {
+    const s = bestTeam(singles);
+    expectValid(singles, s);
+  });
+  it('マイナーなポケモンを1体ずつ軸にする', () => {
+    const r = minorAxisTeams(singles, { n: 3 });
+    expect(r).toHaveLength(3);
+    expect(new Set(r.map((s) => s.axis.id)).size).toBe(3);
+    for (const s of r) {
+      expectValid(singles, s);
+      expect(singles.rankOf.get(s.axis.id).pos).toBeGreaterThan(MINOR_FROM);
+      expect(s.team.some((m) => m?.id === s.axis.id)).toBe(true);
+    }
+  });
   it('滅び・バトンでは、4つの技になくても始動の技を入れた型で、始動役を入れる', () => {
     for (const [style, move] of [['perish', 'Perish Song'], ['baton', 'Baton Pass']]) {
       const r = suggestTeams(doubles, [], { style, pool: 40, threats: 30, results: 1 });
