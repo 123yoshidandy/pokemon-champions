@@ -4,7 +4,7 @@ import { jaPokemon, jaItem, jaAbility, jaMove, jaNature, usageOf, rankHistory, m
 import { STATS, STAT_JA, STAT_LONG_JA, speedTiers } from '../stats.js';
 import { defenseProfile, TYPES } from '../types.js';
 import { metaBattler, duel, topMeta } from '../analysis.js';
-import { addToTeam } from './common.js';
+import { addToTeam, getTopN, topNSelect } from './common.js';
 
 export function renderDetail(app, root, id) {
   const db = app.db;
@@ -123,11 +123,18 @@ function sparkline(hist) {
   return box;
 }
 
-// 環境の上位との対面
+// 環境の上位との対面。上位の数を変えると描き直す
 function matchups(app, id) {
+  const box = h('section', { class: 'card' });
+  const draw = () => mount(box, matchupBody(app, id, getTopN(), draw));
+  draw();
+  return box;
+}
+
+function matchupBody(app, id, n, redraw) {
   const db = app.db;
   const me = metaBattler(db, id);
-  const rows = topMeta(db, 30).filter((x) => x !== id).map((fid) => {
+  const rows = topMeta(db, n).filter((x) => x !== id).map((fid) => {
     const foe = metaBattler(db, fid);
     return { fid, d: duel(db, me, foe) };
   });
@@ -138,12 +145,12 @@ function matchups(app, id) {
     h('span', { class: 'small' }, `与 ${jaMove(db, r.d.a.move) ?? '-'} ${r.d.a.avgPct.toFixed(0)}%`),
     h('span', { class: 'small' }, `被 ${jaMove(db, r.d.b.move) ?? '-'} ${r.d.b.avgPct.toFixed(0)}%`),
   );
-  return h('section', { class: 'card' },
-    h('h2', {}, '環境の上位30体との対面'),
+  return [
+    h('div', { class: 'row' }, h('h2', {}, '環境の上位との対面'), h('span', { class: 'spacer' }), topNSelect(redraw)),
     h('p', { class: 'muted small' }, `よく使われる型どうしで、先に倒せるかを比べています（${jaItem(db, me.item) || '持ち物なし'}・${jaNature(db, me.nature)}・${me.sp.join('-')}）`),
     h('div', { class: 'grid2' },
       h('div', {}, h('h3', {}, `有利（${strong.length}）`), h('ul', { class: 'mu-list' }, strong.map(line))),
       h('div', {}, h('h3', {}, `不利（${weak.length}）`), h('ul', { class: 'mu-list' }, weak.map(line))),
     ),
-  );
+  ];
 }

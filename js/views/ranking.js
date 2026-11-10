@@ -3,7 +3,7 @@ import { h, mount, typeBadges, typeBadge, iconButton, bar } from '../ui.js';
 import { jaPokemon, jaItem, usageOf, isMegaStone, battleForm, moveData, toKatakana } from '../data.js';
 import { metaBattler, trendAttackType, TREND_MIN_POWER } from '../analysis.js';
 import { TYPES, TYPE_JA } from '../types.js';
-import { addToTeam, dataDate, formatLabel } from './common.js';
+import { addToTeam, dataDate, formatLabel, getTopN, topNSelect } from './common.js';
 import * as store from '../store.js';
 
 export function renderRanking(app, root) {
@@ -88,9 +88,22 @@ function rankRow(app, r) {
   );
 }
 
-// 上位の傾向（タイプ・攻撃技のタイプ）
+// 上位の傾向。上位の数を変えると描き直す（開いたまま）
 function trends(db) {
-  const top = db.ranking.slice(0, 30);
+  const summary = h('summary', {});
+  const body = h('div', { class: 'trend-body' });
+  const draw = () => {
+    const n = getTopN();
+    summary.textContent = `上位${n}体の傾向`;
+    mount(body, h('div', { class: 'row' }, topNSelect(draw)), trendGrid(db, n));
+  };
+  draw();
+  return h('details', { class: 'card trends' }, summary, body);
+}
+
+// タイプ・攻撃技のタイプ
+function trendGrid(db, n) {
+  const top = db.ranking.slice(0, n);
   const w = (pos) => 1 / Math.sqrt(pos);
   const typeCount = new Map();
   const atkType = new Map();
@@ -109,9 +122,7 @@ function trends(db) {
   const sorted = (m) => [...m.entries()].sort((a, b) => b[1] - a[1]);
   const maxAtk = sorted(atkType)[0]?.[1] ?? 1;
 
-  return h('details', { class: 'card trends' },
-    h('summary', {}, '上位30体の傾向'),
-    h('div', { class: 'trend-grid' },
+  return h('div', { class: 'trend-grid' },
       h('div', {},
         h('h3', {}, '多いタイプ'),
         h('div', { class: 'type-counts' }, sorted(typeCount).slice(0, 8).map(([t, n]) => h('span', { class: 'type-count' }, typeBadge(t, true), `${n}`))),
@@ -121,6 +132,5 @@ function trends(db) {
         h('p', { class: 'muted small' }, `威力${TREND_MIN_POWER}未満の技（ねこだましなど）と、こごえるかぜ・バークアウトは数えない`),
         sorted(atkType).slice(0, 8).map(([t, v]) => bar((v / maxAtk) * 100, TYPE_JA[t], null, '')),
       ),
-    ),
   );
 }

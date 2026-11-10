@@ -2,7 +2,7 @@
 import * as store from '../store.js';
 import { defaultMember } from '../team.js';
 import { jaPokemon } from '../data.js';
-import { toast } from '../ui.js';
+import { h, toast } from '../ui.js';
 
 // 構築の空いている枠に、よく使われる型で入れる
 export function addToTeam(app, id) {
@@ -23,6 +23,22 @@ export function addToTeam(app, id) {
 }
 
 export const formatLabel = (db) => (db.doubles ? 'ダブル' : 'シングル');
+
+// 環境の傾向・ポケモンの対面で見る「上位N体」（画面どうしで共通にして覚える）
+const TOP_N = [10, 30, 50, 100];
+export const getTopN = () => {
+  const n = store.getPref('topN', 30);
+  return TOP_N.includes(n) ? n : 30;
+};
+
+export function topNSelect(onChange) {
+  const n = getTopN();
+  return h('select', {
+    class: 'top-n',
+    'aria-label': '相手にする上位の数',
+    onchange: (e) => { store.setPref('topN', Number(e.target.value)); onChange(); },
+  }, TOP_N.map((v) => h('option', { value: v, selected: v === n }, `上位${v}体`)));
+}
 
 export function dataDate(db) {
   const d = db.date ?? db.meta?.date;

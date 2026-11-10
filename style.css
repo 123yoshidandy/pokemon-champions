@@ -312,6 +312,9 @@ select:disabled { opacity: 0.6; }
 .source { font-size: 12px; color: var(--muted); text-align: center; }
 
 .trends summary { cursor: pointer; font-weight: 700; color: var(--accent); }
+.trend-body > .row { margin-top: 10px; }
+.row > h2 { margin: 0; }
+select.top-n { padding: 4px 8px; }
 .trend-grid { display: grid; gap: 4px 20px; grid-template-columns: 1fr; }
 @media (min-width: 760px) { .trend-grid { grid-template-columns: 1fr 1fr; } }
 .type-counts { display: flex; flex-wrap: wrap; gap: 8px; }
