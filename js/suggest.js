@@ -20,7 +20,29 @@ export const STYLES = {
   ...Object.fromEntries(Object.entries(WEATHER).map(([k, v]) => [k, { label: v.label }])),
   trickroom: { label: 'トリックルーム' },
   tailwind: { label: 'おいかぜ' },
+  perish: { label: '滅び' },
+  baton: { label: 'バトン' },
+  // 介護（このゆびとまれ・いかりのこなで攻撃を引きつけ、エースに積ませる）はダブルだけ
+  carry: { label: '介護', doubles: true },
 };
+
+// 形式で使えるスタイル
+export const stylesFor = (db) => Object.entries(STYLES).filter(([, v]) => !v.doubles || db.doubles);
+
+// 技で始めるスタイルの、始動の技
+export const STYLE_MOVES = {
+  trickroom: ['Trick Room'],
+  tailwind: ['Tailwind'],
+  perish: ['Perish Song'],
+  baton: ['Baton Pass'],
+  carry: ['Follow Me', 'Rage Powder', 'Ally Switch'],
+};
+
+// 能力を上げる技（バトン・介護で活きる）
+const SETUP_MOVES = new Set(['Swords Dance', 'Dragon Dance', 'Nasty Plot', 'Calm Mind', 'Quiver Dance', 'Shell Smash', 'Bulk Up',
+  'Belly Drum', 'Agility', 'Iron Defense', 'Cosmic Power', 'Acid Armor', 'Curse', 'Coaching', 'Victory Dance', 'Shift Gear', 'Tidy Up', 'Growth', 'Work Up']);
+// 滅びで、ほろびのカウントを稼ぐ技
+const STALL_MOVES = new Set(['Protect', 'Detect', 'Spiky Shield', "King's Shield", 'Baneful Bunker', 'Silk Trap', 'Burning Bulwark', 'Fake Out', 'Follow Me', 'Rage Powder']);
 
 // 振りなしのすばやさ（Lv50）がこれ以下なら、トリックルームで活きるとみなす（種族値 80 以下）
 const TR_SPEED = 100;
@@ -29,9 +51,23 @@ const hasMove = (b, name) => b.moves.includes(name);
 
 export function isSetter(b, style) {
   if (WEATHER[style]) return WEATHER[style].setter.includes(b.ability);
-  if (style === 'trickroom') return hasMove(b, 'Trick Room');
-  if (style === 'tailwind') return hasMove(b, 'Tailwind');
-  return false;
+  return (STYLE_MOVES[style] ?? []).some((m) => hasMove(b, m));
+}
+
+// スタイルの始動の技を、採用率がこれ以上なら、よく使われる4つの技に入っていなくても入れて比べる
+const STYLE_MOVE_MIN_PCT = 5;
+
+// スタイルに合わせた型（始動の技が4つの技になければ、4つ目と入れ替える）
+export function styleMember(db, member, style) {
+  const keys = STYLE_MOVES[style];
+  if (!keys || keys.some((m) => member.moves.includes(m))) return member;
+  const use = usageOf(db, member.id).moves.find(([m, p]) => keys.includes(m) && p >= STYLE_MOVE_MIN_PCT);
+  if (!use) return member;
+  const moves = member.moves.slice();
+  // まもるは残し、採用の少ない方から入れ替える
+  const i = moves.findLastIndex((m) => m && m !== 'Protect');
+  moves[i >= 0 ? i : Math.max(0, moves.findLastIndex(Boolean))] = use[0];
+  return { ...member, moves };
 }
 
 // その場を活かせるか（始動役は除く）
@@ -46,12 +82,25 @@ export function isAbuser(db, b, style) {
   }
   if (style === 'trickroom') return (db.dex[b.id]?.stats[5] ?? Infinity) <= TR_SPEED;
   if (style === 'tailwind') return b.stats[5] >= 90 && b.stats[5] <= 140;
+  if (style === 'perish') return b.moves.some((m) => STALL_MOVES.has(m));
+  if (style === 'baton' || style === 'carry') return b.moves.some((m) => SETUP_MOVES.has(m));
   return false;
 }
 
 // 構築にあるスタイル（表示用）
 export function detectStyles(db, battlers) {
-  return Object.keys(STYLES).filter((s) => s && battlers.some((b) => isSetter(b, s)));
+  return stylesFor(db).map(([s]) => s).filter((s) => s && battlers.some((b) => isSetter(b, s)));
+}
+
+// スタイルの始動役になれるポケモン（候補の範囲の外でも足す）
+function styleSetterIds(db, style) {
+  if (!style) return [];
+  const w = WEATHER[style];
+  return db.ranking.map((r) => r.id).filter((id) => {
+    const u = usageOf(db, id);
+    if (w) return u.abilities.some(([a, p]) => w.setter.includes(a) && p >= STYLE_MOVE_MIN_PCT);
+    return u.moves.some(([m, p]) => STYLE_MOVES[style]?.includes(m) && p >= STYLE_MOVE_MIN_PCT);
+  });
 }
 
 // ---------- 候補の下ごしらえ ----------
@@ -84,14 +133,14 @@ function supportedScore(c, j, sup) {
 }
 
 // 候補ごとに、メガストーンあり／なしの型と、上位の相手への有利さを計算しておく
-function prepare(db, ids, threats) {
+function prepare(db, ids, threats, style = '') {
   const cands = new Map();
   for (const id of ids) {
     if (!db.dex[id] || cands.has(id)) continue;
     const variants = [];
-    const main = defaultMember(db, id);
+    const main = styleMember(db, defaultMember(db, id), style);
     variants.push(main);
-    if (isMegaStone(db, id, main.item)) variants.push(defaultMember(db, id, [], { noMega: true }));
+    if (isMegaStone(db, id, main.item)) variants.push(styleMember(db, defaultMember(db, id, [], { noMega: true }), style));
     cands.set(id, variants.map((member) => {
       const b = memberBattler(db, member);
       const scores = threats.map((t) => (t.id === id ? 0 : duel(db, b, t).score));
@@ -191,7 +240,7 @@ export function suggestTeams(db, axis = [], { pool = 60, threats: threatN = 40, 
   const weights = threatIds.map((id) => rankWeight(db.rankOf.get(id)?.pos));
   const ctx = { threats: threatBattlers, weights, wsum: weights.reduce((a, b) => a + b, 0), style };
   const axisIds = [...new Set(axis.filter((id) => db.dex[id]))].slice(0, TEAM_SIZE - 1);
-  const cands = prepare(db, [...axisIds, ...topMeta(db, pool)], threatBattlers);
+  const cands = prepare(db, [...axisIds, ...topMeta(db, pool), ...styleSetterIds(db, style)], threatBattlers, style);
 
   // 1体のポケモンについて、チームの状態に合う型（メガシンカは1体まで）
   const variantFor = (id, team) => {
@@ -251,7 +300,8 @@ export function suggestTeams(db, axis = [], { pool = 60, threats: threatN = 40, 
   return picked.map(({ team, ev }) => {
     // 構築に入れる形にする（持ち物が重ならないように、順に選び直す）
     const members = [];
-    for (const c of team) members.push(c.mega ? c.member : defaultMember(db, c.id, members, { noMega: team.some((x) => x.mega) }));
+    // 技は、スタイルに合わせた型のまま
+    for (const c of team) members.push(c.mega ? c.member : { ...defaultMember(db, c.id, members, { noMega: team.some((x) => x.mega) }), moves: c.member.moves });
     const battlers = members.map((m) => memberBattler(db, m));
     return { team: normalizeTeam(members), battlers, eval: ev, styles: detectStyles(db, battlers) };
   });

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { makeDB, isMegaStone } from '../js/data.js';
-import { suggestTeams, isSetter, STYLES } from '../js/suggest.js';
+import { suggestTeams, isSetter, STYLES, stylesFor, styleMember } from '../js/suggest.js';
 import { memberBattler } from '../js/team.js';
 
 const read = (f) => JSON.parse(readFileSync(new URL(`../data/${f}`, import.meta.url), 'utf8'));
@@ -19,6 +19,20 @@ function expectValid(db, s) {
 }
 
 describe('構築の提案', () => {
+  it('滅び・バトンでは、4つの技になくても始動の技を入れた型で、始動役を入れる', () => {
+    for (const [style, move] of [['perish', 'Perish Song'], ['baton', 'Baton Pass']]) {
+      const r = suggestTeams(doubles, [], { style, pool: 40, threats: 30, results: 1 });
+      expect(r[0].team.some((m) => m?.moves.includes(move))).toBe(true);
+    }
+  });
+  it('介護はダブルだけ', () => {
+    expect(stylesFor(doubles).map(([k]) => k)).toContain('carry');
+    expect(stylesFor(singles).map(([k]) => k)).not.toContain('carry');
+  });
+  it('スタイルの技は、まもるを残して入れ替える', () => {
+    const m = styleMember(doubles, { id: 'primarina', moves: ['Protect', 'Moonblast', 'Hyper Voice', 'Calm Mind'] }, 'perish');
+    expect(m.moves).toEqual(['Protect', 'Moonblast', 'Hyper Voice', 'Perish Song']);
+  });
   it('ダブルでは、味方を助ける技や特性を持つメンバーが入る', () => {
     const r = suggestTeams(doubles, [], { pool: 40, threats: 30, results: 2 });
     for (const s of r) expect(s.eval.support.length).toBeGreaterThan(0);
@@ -57,6 +71,6 @@ describe('構築の提案', () => {
   });
 
   it('スタイルの一覧', () => {
-    expect(Object.keys(STYLES)).toEqual(['', 'sun', 'rain', 'sand', 'snow', 'trickroom', 'tailwind']);
+    expect(Object.keys(STYLES)).toEqual(['', 'sun', 'rain', 'sand', 'snow', 'trickroom', 'tailwind', 'perish', 'baton', 'carry']);
   });
 });

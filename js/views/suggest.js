@@ -1,7 +1,7 @@
 // おすすめの構築（環境データから6体を提案する）
 import { h, mount, typeBadges, typeBadge, pokemonCombo, iconButton, icon, toast, pokeIcon } from '../ui.js';
 import { jaPokemon, jaItem } from '../data.js';
-import { suggestTeams, STYLES } from '../suggest.js';
+import { suggestTeams, STYLES, stylesFor } from '../suggest.js';
 import * as store from '../store.js';
 import { formatLabel } from './common.js';
 
@@ -25,6 +25,8 @@ const save = () => {
 
 export function renderSuggest(app, root) {
   const db = app.db;
+  // シングルでは、ダブルだけのスタイル（介護）を選べない
+  if (!stylesFor(db).some(([k]) => k === state.style)) state.style = '';
   const team = store.getTeam(app.format).filter(Boolean);
   const axis = state.useTeam && team.length ? team.slice(0, 5).map((m) => m.id) : state.axis.filter((id) => id && db.dex[id]);
   const key = JSON.stringify([app.format, db.date, axis, state.style, state.pool, state.threats]);
@@ -36,7 +38,7 @@ export function renderSuggest(app, root) {
     // 「計算中」を先に描いてから計算する
     setTimeout(() => {
       try {
-        state.result = { key, list: suggestTeams(db, axis, { style: state.style, pool: state.pool, threats: state.threats }) };
+        state.result = { key, style: state.style, list: suggestTeams(db, axis, { style: state.style, pool: state.pool, threats: state.threats }) };
       } finally {
         state.busy = false;
         redraw();
@@ -75,7 +77,7 @@ export function renderSuggest(app, root) {
         : null,
       axisBox,
       h('h2', { class: 'mt' }, 'スタイル'),
-      h('div', { class: 'seg' }, Object.entries(STYLES).map(([k, v]) =>
+      h('div', { class: 'seg' }, stylesFor(db).map(([k, v]) =>
         h('button', { type: 'button', class: state.style === k ? 'on' : '', onclick: () => { state.style = k; redraw(); } }, v.label))),
       h('details', { class: 'more-opts' },
         h('summary', { class: 'muted small' }, '細かい設定'),
@@ -97,8 +99,12 @@ export function renderSuggest(app, root) {
 
 function results(app, db, list) {
   if (!list.length) return h('p', { class: 'muted' }, '条件に合う構築が見つかりませんでした。');
+  const style = state.result.style;
+  const noSetter = style && !list.some((s) => s.styles.includes(style))
+    ? h('p', { class: 'muted' }, `この環境のデータに、${STYLES[style].label}の始動役がいませんでした。`)
+    : null;
   const threatsN = state.threats;
-  return h('ol', { class: 'suggest-list' }, list.map((s, k) =>
+  return [noSetter, h('ol', { class: 'suggest-list' }, list.map((s, k) =>
     h('li', { class: 'card suggest' },
       h('div', { class: 'suggest-head' },
         h('span', { class: 'plan-rank' }, k + 1),
@@ -123,7 +129,7 @@ function results(app, db, list) {
           ? h('span', { class: 'reason' }, `よく組まれる組み合わせ: ${s.eval.pairs.slice(0, 4).map(([a, b]) => `${jaPokemon(db, a)}・${jaPokemon(db, b)}`).join(' / ')}${s.eval.pairs.length > 4 ? ` ほか${s.eval.pairs.length - 4}組` : ''}`)
           : null,
       ),
-    )));
+    )))];
 }
 
 function useTeam(app, team) {
