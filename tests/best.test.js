@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { makeDB, megaRuleDB, canMega } from '../js/data.js';
-import { buildOpponents } from '../js/opponents.js';
+import { buildOpponents, itemFits } from '../js/opponents.js';
 import { validTeam, evaluateTeam, searchBest } from '../js/best.js';
 import { memberWithItem } from '../js/team.js';
 
@@ -27,6 +27,14 @@ describe('相手の構築群', () => {
 });
 
 describe('一番の構築の探索', () => {
+  it('フィールドのシードは、そのフィールドを張る味方がいなければ効かない', () => {
+    const seed = { id: 'x', item: 'Electric Seed', moves: [] };
+    const plain = { id: 'garchomp', item: '', ability: 'Rough Skin', nature: 'Jolly', moves: ['Earthquake'], sp: [0, 0, 0, 0, 0, 0] };
+    const surge = { ...plain, id: 'pincurchin' in doubles.dex ? 'pincurchin' : 'garchomp', ability: 'Electric Surge' };
+    expect(itemFits(doubles, [plain, seed], seed)).toBe(false);
+    expect(itemFits(doubles, [surge, seed], seed)).toBe(true);
+    expect(itemFits(doubles, [plain], { ...plain, item: 'Light Clay' })).toBe(false);
+  });
   it('持ち物を決めた型は、持ち物に合う技にする', () => {
     const m = memberWithItem(singles, 'garchomp', 'Choice Scarf');
     for (const mv of m.moves) expect(singles.moves[mv].cat).not.toBe('Status');

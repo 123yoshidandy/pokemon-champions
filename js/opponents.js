@@ -1,7 +1,7 @@
 // 相手にする構築の群れ（使用率と「一緒に使われるポケモン」から、実際にありそうな構築を作る）
 import { usageOf, isMegaStone } from './data.js';
-import { defaultMember, memberBattler, megaStoneShare, MEGA_ONLY_SHARE, TEAM_SIZE } from './team.js';
-import { topMeta, rankWeight, fieldClash } from './analysis.js';
+import { defaultMember, memberWithItem, memberBattler, megaStoneShare, MEGA_ONLY_SHARE, TEAM_SIZE } from './team.js';
+import { topMeta, rankWeight, fieldClash, fieldSetters, WEATHER_ABILITY } from './analysis.js';
 import { rng } from './sim.js';
 
 // 構築を作るときに使う、上位の範囲
@@ -15,6 +15,38 @@ function pick(r, items, weight) {
   let x = r() * sum;
   for (let i = 0; i < items.length; i++) if ((x -= ws[i]) <= 0) return items[i];
   return items.at(-1);
+}
+
+// 条件があるときだけ効く持ち物（フィールドのシード・天気を伸ばす石など）
+const TERRAIN_ITEM = { 'Electric Seed': 'electric', 'Grassy Seed': 'grassy', 'Psychic Seed': 'psychic', 'Misty Seed': 'misty' };
+const WEATHER_ROCK = { 'Heat Rock': 'sun', 'Damp Rock': 'rain', 'Smooth Rock': 'sand', 'Icy Rock': 'snow' };
+const SCREENS = ['Reflect', 'Light Screen', 'Aurora Veil'];
+
+// 持ち物が、構築の中で効くか（シードはそのフィールドを張る味方、石は自分の天気、ねんどは自分の壁、ルームサービスはトリックルーム）
+export function itemFits(db, team, m) {
+  if (TERRAIN_ITEM[m.item]) return fieldSetters(team.map((x) => memberBattler(db, x))).terrains.includes(TERRAIN_ITEM[m.item]);
+  if (WEATHER_ROCK[m.item]) return WEATHER_ABILITY[memberBattler(db, m).ability] === WEATHER_ROCK[m.item];
+  if (m.item === 'Light Clay') return m.moves.some((x) => SCREENS.includes(x));
+  if (m.item === 'Room Service') return team.some((x) => x.moves.includes('Trick Room'));
+  return true;
+}
+
+// 条件に合わない持ち物を、採用率 1% 以上の、合う別の持ち物に替える（替えられなければ、そのまま）
+export function fixItems(db, team) {
+  const out = team.slice();
+  out.forEach((m, i) => {
+    if (itemFits(db, out, m)) return;
+    const taken = new Set(out.filter((_, k) => k !== i).map((x) => x.item));
+    for (const [it, p] of usageOf(db, m.id).items) {
+      if ((p ?? 0) < 1 || it === m.item || taken.has(it) || isMegaStone(db, m.id, it)) continue;
+      const nm = memberWithItem(db, m.id, it);
+      if (nm && itemFits(db, out.map((x, k) => (k === i ? nm : x)), nm)) {
+        out[i] = nm;
+        return;
+      }
+    }
+  });
+  return out;
 }
 
 // 構築に足せるか（同じ種族・天気とフィールドのぶつかり・メガの型でしか使われない種族のメガなし）
@@ -62,6 +94,9 @@ export function buildOpponents(db, { n = 60, seed = 1 } = {}) {
       if (!added) break;
     }
     if (team.length < TEAM_SIZE) continue;
+    const fixed = fixItems(db, team);
+    team.splice(0, TEAM_SIZE, ...fixed);
+    if (team.some((m) => !itemFits(db, team, m))) continue;
     const key = team.map((m) => m.id).sort().join(',');
     if (!out.has(key)) out.set(key, { team, weight: team.reduce((a, m) => a + rankWeight(pos(m.id)), 0) / TEAM_SIZE });
   }

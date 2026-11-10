@@ -5,7 +5,7 @@ import { defaultMember, memberWithItem, memberBattler, normalizeTeam, megaStoneS
 import { topMeta, fieldClash } from './analysis.js';
 import { suggestTeams } from './suggest.js';
 import { rng, battle, choosePicks } from './sim.js';
-import { buildOpponents } from './opponents.js';
+import { buildOpponents, itemFits, fixItems } from './opponents.js';
 
 // ---------- 規則 ----------
 
@@ -16,6 +16,7 @@ export function validTeam(db, team) {
   const items = team.map((m) => m.item).filter(Boolean);
   if (new Set(items).size !== items.length) return false;
   if (fieldClash(team.map((m) => memberBattler(db, m)))) return false;
+  if (team.some((m) => !itemFits(db, team, m))) return false;
   if (db.megaRule && team.some((m) => !db.dex[m.id].megas?.length)) return false;
   // メガシンカの型でしか使われていない種族を、メガなしで使わない（メガシンカバトルは除く）
   if (!db.megaRule && team.some((m) => !isMegaStone(db, m.id, m.item) && megaStoneShare(db, m.id) >= MEGA_ONLY_SHARE)) return false;
@@ -120,7 +121,7 @@ export function searchBest(db, { opponents: nOpp = 60, battles = 8, finalBattles
 
   // 初期値：今の提案の結果（一番の構築と、おまかせの上位）
   const starts = suggestTeams(db, [], { pool: 100, threats: 60, beam: 48, results: 5 })
-    .map((s) => s.team.filter(Boolean))
+    .map((s) => fixItems(db, s.team.filter(Boolean)))
     .filter((t) => validTeam(db, t));
   const baseline = starts[0];
   let best = null;
