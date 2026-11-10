@@ -4,7 +4,7 @@ import { jaPokemon, jaItem, jaAbility, jaMove, jaNature, usageOf, allUsed, battl
 import { STATS, STAT_JA, NATURES, SP_TOTAL, SP_MAX, validateSpread } from '../stats.js';
 import { TYPE_JA } from '../types.js';
 import { defaultMember, memberBattler, encodeTeam, decodeTeam, toShowdown, fromShowdown, toJapaneseText, normalizeTeam } from '../team.js';
-import { threatReport, suggestTeammates, defenseTable, offenseTable, speedList, teamSupport, supportNames } from '../analysis.js';
+import { threatReport, suggestTeammates, defenseTable, offenseTable, speedList, teamSupport, supportNames, bulkPlans } from '../analysis.js';
 import * as store from '../store.js';
 import { formatLabel, saveTeam } from './common.js';
 
@@ -179,8 +179,34 @@ function editor(app, team, i, set) {
         h('span', { class: 'muted small' }, 'よく使われる配分'),
         u.spreads.slice(0, 4).map(([p, sp]) => h('button', { class: 'chip-btn', type: 'button', onclick: () => update({ sp: sp.slice() }) }, `${sp.join('-')}（${p.toFixed(0)}%）`)),
       ),
+      bulkBox(db, m, (sp) => update({ sp })),
     ),
   );
+}
+
+// 耐久調整のおすすめ（開いたときに計算する）
+function bulkBox(db, m, apply) {
+  const body = h('div', { class: 'bulk-body' });
+  const box = h('details', { class: 'bulk' }, h('summary', { class: 'muted small' }, '耐久調整（上位30体の攻撃を1発耐える配分）'), body);
+  box.addEventListener('toggle', () => {
+    if (!box.open || body.childElementCount) return;
+    const free = SP_TOTAL - m.sp[1] - m.sp[3] - m.sp[5];
+    const plans = bulkPlans(db, m).sort((a, b) => b.reachable - a.reachable || a.cost - b.cost);
+    const label = (sp) => STATS.map((s, i) => (i === 0 || i === 2 || i === 4) && sp[i] ? `${STAT_JA[s]}${sp[i]}` : '').filter(Boolean).join(' ') || '振らない';
+    mount(body,
+      h('p', { class: 'muted small' }, `こうげき・とくこう・すばやさと性格はそのままで、HP と ぼうぎょ・とくぼうを振り直します（残り${free}ポイント）。1発で倒されうる技だけを出しています。`),
+      plans.length
+        ? h('ul', { class: 'bulk-list' }, plans.map((p) => h('li', {},
+          h('span', { class: 'bulk-what' }, `${jaPokemon(db, p.foe)}の${jaMove(db, p.move)}`, h('span', { class: 'muted small' }, ` いま${p.before.minPct.toFixed(0)}〜${p.before.maxPct.toFixed(0)}%`)),
+          h('span', { class: 'bulk-sp' }, label(p.sp)),
+          p.reachable
+            ? h('button', { class: 'chip-btn', type: 'button', onclick: () => apply(p.sp) }, 'この配分にする')
+            : h('span', { class: 'muted small' }, `あと${p.cost - free}ポイント`),
+        )))
+        : h('p', { class: 'muted small' }, '上位30体のよく使われる技で、1発で倒されるものはありません。'),
+    );
+  });
+  return box;
 }
 
 const field = (label, control, extra) => h('label', { class: 'field' }, h('span', { class: 'field-label' }, label), control, extra ?? null);

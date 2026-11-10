@@ -5,7 +5,7 @@ import { calcStats, speedTiers, validateSpread, groupSpreads } from '../js/stats
 import { calcDamage, koChance, koLabel } from '../js/damage.js';
 import { makeDB, megaForItem, battleForm, searchPokemon, searchNames, toKatakana, jaPokemon, spriteUrls } from '../js/data.js';
 import { defaultMember, memberBattler, encodeTeam, decodeTeam, toShowdown, fromShowdown, normalizeTeam } from '../js/team.js';
-import { duel, threatReport, suggestTeammates, selectionPlan, defenseTable, offenseTable, speedList, metaBattler, trendAttackType, typeReach, teamSupport, supportedDuel } from '../js/analysis.js';
+import { duel, threatReport, suggestTeammates, selectionPlan, defenseTable, offenseTable, speedList, metaBattler, trendAttackType, typeReach, teamSupport, supportedDuel, bulkPlans } from '../js/analysis.js';
 
 const read = (f) => JSON.parse(readFileSync(new URL(`../data/${f}`, import.meta.url), 'utf8'));
 const shared = { dex: read('pokedex.json'), moves: read('moves.json'), names: read('names-ja.json'), meta: read('meta.json') };
@@ -208,6 +208,17 @@ describe('分析', () => {
     expect(teamSupport(singles, battlers)).toEqual({});
     const foe = metaBattler(doubles, 'sneasler');
     for (const b of battlers.filter(Boolean)) expect(supportedDuel(doubles, b, foe, sup).score).toBeGreaterThanOrEqual(duel(doubles, b, foe).score);
+  });
+  it('耐久調整: 出した配分なら、その技を確定で耐える', () => {
+    const m = defaultMember(doubles, 'incineroar');
+    const plans = bulkPlans(doubles, m);
+    expect(plans.length).toBeGreaterThan(0);
+    for (const p of plans.filter((x) => x.reachable)) {
+      const foe = metaBattler(doubles, p.foe);
+      const r = calcDamage(foe, memberBattler(doubles, { ...m, sp: p.sp }), { name: p.move, ...doubles.moves[p.move] }, { doubles: true });
+      expect(r.max).toBeLessThan(r.hp);
+      expect(validateSpread(p.sp).ok).toBe(true);
+    }
   });
   it('相性表は 18 タイプ', () => {
     expect(defenseTable(battlers)).toHaveLength(18);

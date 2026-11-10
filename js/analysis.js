@@ -4,6 +4,7 @@ import { TYPES, defenseProfile, effectiveness } from './types.js';
 import { moveData, isAttack, usageOf } from './data.js';
 import { calcDamage } from './damage.js';
 import { defaultMember, memberBattler } from './team.js';
+import { SP_TOTAL, SP_MAX } from './stats.js';
 
 // ---------- 対戦する形 ----------
 
@@ -363,6 +364,53 @@ export function selectionPlan(db, team, opponentIds) {
     })
     .sort((a, b) => b.value - a.value);
   return { matrix, mine, foes, plans: plans.slice(0, 3) };
+}
+
+// ---------- 耐久調整 ----------
+
+/**
+ * 上位 n 体のよく使われる型の攻撃技のうち、いまの配分だと1発で倒されうる技について、
+ * HP と ぼうぎょ（物理）・とくぼう（特殊）を振り直して、確定で耐える一番少ない配分を探す。
+ * こうげき・とくこう・すばやさのポイントと性格はそのまま。残りのポイントでまかなえないものは「届かない」とする
+ * @returns [{ foe, move, before: {minPct, maxPct}, sp, cost, reachable }]（相手の順位の順）
+ */
+export function bulkPlans(db, member, { n = 30 } = {}) {
+  const me = memberBattler(db, member);
+  if (!me) return [];
+  const free = SP_TOTAL - member.sp[1] - member.sp[3] - member.sp[5];
+  const plans = [];
+  for (const fid of topMeta(db, n)) {
+    if (fid === member.id) continue;
+    const foe = metaBattler(db, fid);
+    for (const name of foe.moves) {
+      const mv = moveData(db, name);
+      if (!isAttack(mv) || !mv.power) continue;
+      const move = { name, ...mv };
+      const field = { doubles: db.doubles };
+      const now = calcDamage(foe, me, move, field);
+      if (now.max < now.hp) continue;
+      // 物理は B、特殊は D（サイコショックなどは B）。HP と合わせて、合計の少ない順に探す
+      const di = mv.cat === 'Physical' || ['Psyshock', 'Psystrike', 'Secret Sword'].includes(name) ? 2 : 4;
+      let best = null;
+      for (let total = 0; total <= 2 * SP_MAX && !best; total++) {
+        for (let hp = Math.min(SP_MAX, total); hp >= Math.max(0, total - SP_MAX); hp--) {
+          const sp = member.sp.slice();
+          sp[0] = hp;
+          sp[di] = total - hp;
+          // もう片方の耐久は、残りのポイントの範囲で、いまの値を残す
+          const other = di === 2 ? 4 : 2;
+          sp[other] = Math.max(0, Math.min(member.sp[other], free - total));
+          const r = calcDamage(foe, memberBattler(db, { ...member, sp }), move, field);
+          if (r.max < r.hp) {
+            best = { sp, cost: total };
+            break;
+          }
+        }
+      }
+      if (best) plans.push({ foe: fid, move: name, before: { minPct: now.minPct, maxPct: now.maxPct }, sp: best.sp, cost: best.cost, reachable: best.cost <= free });
+    }
+  }
+  return plans;
 }
 
 // ---------- 環境の傾向 ----------
