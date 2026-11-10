@@ -24,6 +24,21 @@ export function addToTeam(app, id) {
 
 export const formatLabel = (db) => (db.doubles ? 'ダブル' : 'シングル');
 
+// 構築に名前を付けて、ブラウザに保存する（同じ名前は上書き）。保存したら true
+export function saveTeam(app, team) {
+  if (!team.some(Boolean)) {
+    toast('ポケモンが入っていません');
+    return false;
+  }
+  const name = prompt('構築の名前', team.filter(Boolean).slice(0, 3).map((m) => jaPokemon(app.db, m.id)).join('・'));
+  if (!name) return false;
+  const saved = store.getSaved(app.format).filter((s) => s.name !== name);
+  saved.unshift({ name, team, savedAt: Date.now() });
+  store.setSaved(app.format, saved);
+  toast(`${name} を保存しました（構築の画面から読み込めます）`);
+  return true;
+}
+
 // 環境の傾向・ポケモンの対面で見る「上位N体」（画面どうしで共通にして覚える）
 const TOP_N = [10, 30, 50, 100];
 export const getTopN = () => {

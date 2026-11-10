@@ -6,7 +6,7 @@ import { TYPE_JA } from '../types.js';
 import { defaultMember, memberBattler, encodeTeam, decodeTeam, toShowdown, fromShowdown, toJapaneseText, normalizeTeam } from '../team.js';
 import { threatReport, suggestTeammates, defenseTable, offenseTable, speedList, teamSupport, supportNames } from '../analysis.js';
 import * as store from '../store.js';
-import { formatLabel } from './common.js';
+import { formatLabel, saveTeam } from './common.js';
 
 const ui = { editing: null, tab: store.getPref('teamTab', 'threats'), threatN: store.getPref('threatN', 30) };
 
@@ -232,16 +232,7 @@ function teamActions(app, team, set, root) {
         prompt('共有のリンク', url);
       }
     }),
-    iconButton('save', '保存', () => {
-      if (!team.some(Boolean)) return toast('ポケモンが入っていません');
-      const name = prompt('構築の名前', team.filter(Boolean).slice(0, 3).map((m) => jaPokemon(db, m.id)).join('・'));
-      if (!name) return;
-      const saved = store.getSaved(app.format).filter((s) => s.name !== name);
-      saved.unshift({ name, team, savedAt: Date.now() });
-      store.setSaved(app.format, saved);
-      toast('保存しました');
-      draw(app, root);
-    }),
+    iconButton('save', '保存', () => { if (saveTeam(app, team)) draw(app, root); }),
     iconButton('copy', '書き出し・取り込み', () => openExport(app, team, set)),
     savedMenu(app, set, root),
   );

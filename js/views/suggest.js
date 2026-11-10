@@ -3,7 +3,7 @@ import { h, mount, typeBadges, typeBadge, pokemonCombo, iconButton, icon, toast,
 import { jaPokemon, jaItem } from '../data.js';
 import { suggestTeams, STYLES, stylesFor, bestTeam, BEST_OPTS, minorAxisTeams, MINOR_FROM } from '../suggest.js';
 import * as store from '../store.js';
-import { formatLabel } from './common.js';
+import { formatLabel, saveTeam } from './common.js';
 
 const MODES = [
   ['best', '一番の構築'],
@@ -142,9 +142,9 @@ function results(app, db, list) {
     h('li', { class: 'card suggest' },
       h('div', { class: 'suggest-head' },
         h('span', { class: 'plan-rank' }, k + 1),
-        s.axis ? h('span', { class: 'tag axis-tag' }, `軸: ${jaPokemon(db, s.axis.id)}（${db.rankOf.get(s.axis.id)?.pos}位）`) : null,
         s.styles.map((st) => h('span', { class: 'tag style-tag' }, STYLES[st].label)),
         h('span', { class: 'spacer' }),
+        iconButton('save', '保存', () => saveTeam(app, s.team)),
         h('button', { class: 'btn primary', type: 'button', onclick: () => useTeam(app, s.team) }, 'この構築を使う'),
       ),
       h('div', { class: 'suggest-members' }, s.battlers.map((b) =>
@@ -154,6 +154,7 @@ function results(app, db, list) {
           h('span', { class: 'muted small' }, b.item ? jaItem(db, b.item) : '持ち物なし'),
         ))),
       h('div', { class: 'reasons' },
+        s.axis ? h('span', { class: 'reason' }, h('span', { class: 'tag axis-tag' }, `軸: ${jaPokemon(db, s.axis.id)}（${db.rankOf.get(s.axis.id)?.pos}位）`), ` 上位${threatsN}体のうち${s.axis.answers.length}体に有利`) : null,
         h('span', { class: `reason${s.eval.holes.length ? ' bad' : ''}` },
           s.eval.holes.length
             ? `上位${threatsN}体のうち、有利なメンバーがいない相手: ${s.eval.holes.map((id) => jaPokemon(db, id)).join('、')}`
