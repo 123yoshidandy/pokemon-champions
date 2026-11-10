@@ -262,8 +262,10 @@ export function teamSupport(db, battlers) {
 export const supportNames = (sup) => Object.keys(SUPPORT_LABEL).filter((k) => sup[k]).map((k) => SUPPORT_LABEL[k]);
 
 // 支援を入れた対面。おいかぜとトリックルームは、その相手に有利な方を使う（使わない方がよければ使わない）
+// ねこだまし・このゆびとまれ（相手が1ターン目に動けない）は、1試合に1回・味方と並んだときだけなので、対面には入れない
+// （すべての対面に入れると、1発で倒される相手にも有利と出てしまう）
 export function supportedDuel(db, a, b, sup = {}) {
-  const { tailwind, trickRoom, ...rest } = sup;
+  const { tailwind, trickRoom, fakeOut, redirect, ...rest } = sup;
   let best = duel(db, a, b, rest);
   for (const [on, key] of [[tailwind, 'tailwind'], [trickRoom, 'trickRoom']]) {
     if (!on) continue;

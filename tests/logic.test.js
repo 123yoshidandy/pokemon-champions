@@ -251,6 +251,20 @@ describe('環境の傾向', () => {
   });
 });
 
+describe('構築チェックの相性表（Issue の構築）', () => {
+  const team = [];
+  for (const id of ['sneasler', 'froslass', 'garchomp', 'charizard', 'kingambit', 'indeedeef']) team.push(defaultMember(doubles, id, team));
+  const report = threatReport(doubles, team.map((m) => memberBattler(doubles, m)), 30);
+  it('ドドゲザンは、インファイトで1発で倒されるオオニューラに有利にならない', () => {
+    const d = report.find((r) => r.id === 'sneasler').duels.find((x) => x.id === 'kingambit');
+    expect(d.b.avgPct).toBeGreaterThanOrEqual(100);
+    expect(d.score).toBeLessThan(0);
+  });
+  it('1発で倒されるのに1発で倒せない欄を、有利にしない', () => {
+    for (const r of report) for (const d of r.duels) if (d.b.avgPct >= 100 && d.a.avgPct < 100) expect(d.score, `${d.id} vs ${r.id}`).toBeLessThanOrEqual(0);
+  });
+});
+
 describe('天気とフィールド', () => {
   const b = (ability, moves = [], id = ability) => ({ id, ability, moves, item: '' });
   it('違う天気どうし・違うフィールドどうしはぶつかる', () => {

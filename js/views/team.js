@@ -367,7 +367,8 @@ function threatsView(app, battlers, root) {
   const db = app.db;
   const live = battlers.filter(Boolean);
   const report = threatReport(db, battlers, ui.threatN);
-  const sup = supportNames(teamSupport(db, battlers));
+  // 対面に入れる支援（ねこだまし・このゆびとまれは入れない）
+  const sup = supportNames({ ...teamSupport(db, battlers), fakeOut: false, redirect: false });
   const holes = report.filter((r) => r.best <= 0);
   const nSel = h('select', { onchange: (e) => { ui.threatN = Number(e.target.value); store.setPref('threatN', ui.threatN); draw(app, root); } },
     [20, 30, 50, 80].map((n) => h('option', { value: n, selected: n === ui.threatN }, `上位${n}体`)));

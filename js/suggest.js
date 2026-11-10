@@ -111,8 +111,10 @@ const SUPPORT_OPTS = {
   trickRoom: { trickRoom: true },
   screens: { reflect: true, lightScreen: true },
   intimidate: { intimidate: true },
-  fakeOut: { fakeOut: true },
 };
+
+// ねこだまし・このゆびとまれは、対面には入れず、構築の役割として小さく加点する
+const TEMPO_BONUS = 0.04;
 
 // 構築の支援（壁は、リフレクターとひかりのかべの片方なら半分とみなす）
 function supportOf(db, team) {
@@ -128,7 +130,6 @@ function supportedScore(c, j, sup) {
   s += Math.max(0, sup.tailwind ? d.tailwind[j] : 0, sup.trickRoom ? d.trickRoom[j] : 0);
   if (sup.screens) s += sup.screens * d.screens[j];
   if (sup.intimidate) s += d.intimidate[j];
-  if (sup.fakeOut || sup.redirect) s += d.fakeOut[j];
   return Math.max(-1, Math.min(1, s));
 }
 
@@ -241,7 +242,8 @@ function evaluate(db, team, ctx) {
   const popularity = team.reduce((a, c) => a + rankWeight(db.rankOf.get(c.id)?.pos), 0) * 0.01;
   // 天気に頼るのに、構築の天気と合わないメンバー
   const misfits = weatherMisfits(team.map((c) => c.battler));
-  const base = cover - defense + Math.min(pairs.length, 5) * 0.02 + styleBonus + popularity - misfits.length * MISFIT_PENALTY;
+  const tempo = sup.fakeOut || sup.redirect ? TEMPO_BONUS : 0;
+  const base = cover - defense + Math.min(pairs.length, 5) * 0.02 + styleBonus + popularity + tempo - misfits.length * MISFIT_PENALTY;
   return { score: base - reuse, base, cover, holes, stacked, pairs, styleBonus, support: supportNames(sup), misfits };
 }
 
