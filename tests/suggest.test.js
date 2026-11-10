@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { makeDB, isMegaStone } from '../js/data.js';
+import { makeDB, isMegaStone, megaRuleDB, canMega } from '../js/data.js';
 import { suggestTeams, isSetter, STYLES, stylesFor, styleMember, bestTeam, minorAxisTeams, MINOR_FROM } from '../js/suggest.js';
 import { memberBattler } from '../js/team.js';
 
@@ -19,6 +19,13 @@ function expectValid(db, s) {
 }
 
 describe('構築の提案', () => {
+  it('メガシンカバトルでは、6体ともメガシンカできる種族で、メガシンカは1体', () => {
+    const db = megaRuleDB(singles);
+    for (const s of suggestTeams(db, [], { pool: 40, threats: 30, results: 2 })) {
+      expectValid(db, s);
+      for (const m of s.team) expect(canMega(db, m.id)).toBe(true);
+    }
+  });
   it('おまかせで1つに絞る', () => {
     const s = bestTeam(singles);
     expectValid(singles, s);

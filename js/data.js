@@ -26,9 +26,50 @@ export async function loadDB(format, base = './data') {
 }
 
 // テストからも使えるように、読み込んだ JSON から db を組み立てる部分を分けている
-export function makeDB({ format, date, season, ranking, usage, dex, moves, names, history, meta }) {
+export function makeDB({ format, date, season, ranking, usage, dex, moves, names, history, meta, megaRule = false }) {
   const rankOf = new Map(ranking.map((r) => [r.id, r]));
-  return { format, date, season, ranking, usage, dex, moves, names, history, meta, rankOf, doubles: format === 'doubles' };
+  return { format, date, season, ranking, usage, dex, moves, names, history, meta, rankOf, doubles: format === 'doubles', megaRule };
+}
+
+// ---------- メガシンカバトル ----------
+
+// メガシンカのすがたがある種族か（地方のすがたなど、そのすがたにメガシンカがないものは除く）
+export const canMega = (db, id) => !!db.dex[id]?.megas?.length;
+
+// 指定された順に、1 から順位を振り直す
+const reRank = (ids) => new Map(ids.map((id, i) => [id, i + 1]));
+
+const megaCache = new WeakMap();
+
+/**
+ * メガシンカバトル（メガシンカできるポケモンだけが使えるルール）の db。
+ * このルールの使用率はないので、ふつうの使用率を、メガシンカできる種族だけに絞って使う。
+ * 順位・前回の順位・順位の推移は、絞ったあとの順位に振り直す。一緒に使われるポケモンも絞る
+ */
+export function megaRuleDB(db) {
+  if (db.megaRule) return db;
+  if (megaCache.has(db)) return megaCache.get(db);
+  const ok = (id) => canMega(db, id);
+  const kept = db.ranking.filter((r) => ok(r.id));
+  const prevPos = reRank(kept.filter((r) => r.prev != null).sort((a, b) => a.prev - b.prev).map((r) => r.id));
+  const ranking = kept.map((r, i) => ({ id: r.id, pos: i + 1, prev: prevPos.get(r.id) ?? null }));
+  const usage = {};
+  for (const r of kept) {
+    const u = db.usage[r.id];
+    if (u) usage[r.id] = { ...u, teammates: u.teammates.filter(ok) };
+  }
+  // 順位の推移も、日ごとに絞ったあとの順位にする
+  const ids = Object.keys(db.history.ranks).filter(ok);
+  const ranks = {};
+  db.history.dates.forEach((_, col) => {
+    const order = ids.filter((id) => db.history.ranks[id][col] != null).sort((a, b) => db.history.ranks[a][col] - db.history.ranks[b][col]);
+    order.forEach((id, i) => {
+      (ranks[id] ??= Array(db.history.dates.length).fill(null))[col] = i + 1;
+    });
+  });
+  const out = makeDB({ ...db, ranking, usage, history: { dates: db.history.dates, ranks }, megaRule: true });
+  megaCache.set(db, out);
+  return out;
 }
 
 // ---------- 名前 ----------

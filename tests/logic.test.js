@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { effectiveness, effectivenessWithAbility, defenseProfile } from '../js/types.js';
 import { calcStats, speedTiers, validateSpread, groupSpreads } from '../js/stats.js';
 import { calcDamage, koChance, koLabel } from '../js/damage.js';
-import { makeDB, megaForItem, battleForm, searchPokemon, searchNames, toKatakana, jaPokemon, spriteUrls } from '../js/data.js';
+import { makeDB, megaForItem, battleForm, searchPokemon, searchNames, toKatakana, jaPokemon, spriteUrls, megaRuleDB, canMega } from '../js/data.js';
 import { defaultMember, memberBattler, encodeTeam, decodeTeam, toShowdown, fromShowdown, normalizeTeam } from '../js/team.js';
 import { duel, threatReport, suggestTeammates, selectionPlan, defenseTable, offenseTable, speedList, metaBattler, trendAttackType, typeReach, teamSupport, supportedDuel, bulkPlans, basicPlan } from '../js/analysis.js';
 
@@ -103,6 +103,32 @@ describe('データ', () => {
   it('絵の URL は、フォルムとメガシンカの名前を付け、元のすがたの絵を控えにする', () => {
     expect(spriteUrls(doubles, 'rotomwash').map((u) => u.split('/').pop())).toEqual(['rotom-wash.png']);
     expect(spriteUrls(doubles, 'garchomp', 'Garchompite Z').map((u) => u.split('/').pop())).toEqual(['garchomp-megaz.png', 'garchomp.png']);
+  });
+});
+
+describe('メガシンカバトル', () => {
+  const mega = megaRuleDB(doubles);
+  it('メガシンカできる種族だけに絞り、順位を1から振り直す', () => {
+    expect(mega.megaRule).toBe(true);
+    expect(mega.ranking.length).toBeGreaterThan(30);
+    expect(mega.ranking.length).toBeLessThan(doubles.ranking.length);
+    mega.ranking.forEach((r, i) => {
+      expect(canMega(mega, r.id)).toBe(true);
+      expect(r.pos).toBe(i + 1);
+    });
+    // 地方のすがたは、元の種族にメガシンカがあっても使えない
+    expect(canMega(doubles, 'raichualola')).toBe(false);
+  });
+  it('一緒に使われるポケモンと、順位の推移も絞る', () => {
+    for (const u of Object.values(mega.usage)) for (const id of u.teammates) expect(canMega(mega, id)).toBe(true);
+    mega.history.dates.forEach((_, col) => {
+      const pos = Object.values(mega.history.ranks).map((a) => a[col]).filter((v) => v != null).sort((a, b) => a - b);
+      pos.forEach((p, i) => expect(p).toBe(i + 1));
+    });
+  });
+  it('同じ db を渡すと、同じものを返す', () => {
+    expect(megaRuleDB(doubles)).toBe(mega);
+    expect(megaRuleDB(mega)).toBe(mega);
   });
 });
 
