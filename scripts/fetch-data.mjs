@@ -197,8 +197,8 @@ function parseCSV(text) {
   });
 }
 
-// 英語名 → 日本語名（かな）の対応表を作る
-async function nameTable(file, idCol) {
+// 英語名 → 日本語名（かな）の対応表を作る。ids には 英語名 → id（ポケモンなら全国図鑑の番号）を入れる
+async function nameTable(file, idCol, ids = null) {
   const rows = parseCSV(await fetchText(`${POKEAPI_CSV}/${file}.csv`));
   const en = new Map();
   const ja = new Map();
@@ -207,7 +207,10 @@ async function nameTable(file, idCol) {
     if (r.local_language_id === '1') ja.set(r[idCol], r.name);
   }
   const out = new Map();
-  for (const [id, e] of en) if (ja.has(id)) out.set(norm(e), ja.get(id));
+  for (const [id, e] of en) {
+    if (ja.has(id)) out.set(norm(e), ja.get(id));
+    ids?.set(norm(e), Number(id));
+  }
   return out;
 }
 
@@ -261,15 +264,17 @@ async function loadReference(usedMoves) {
   const ageDays = cached ? (Date.now() - Date.parse(cached.fetchedAt)) / 86400e3 : Infinity;
   const unknown = cached ? [...usedMoves].filter((m) => !cached.moves[norm(m)]) : [];
   const reason = !cached ? '保存したものがない' : force ? '--force' : ageDays > REFERENCE_MAX_AGE_DAYS ? `${Math.floor(ageDays)}日たった`
+    : !cached.speciesNum ? '図鑑の番号がない'
     : unknown.length ? `知らない技がある（${unknown.slice(0, 3).join(', ')}）` : null;
   if (!reason) return cached;
   // 取り直したのに知らない技が残るとき（チャンピオンズの新しい技など）、毎回取り直さないように、前回と同じなら使い回す
-  if (cached && !force && ageDays <= REFERENCE_MAX_AGE_DAYS && cached.unknownMoves?.join() === unknown.join()) return cached;
+  if (cached?.speciesNum && !force && ageDays <= REFERENCE_MAX_AGE_DAYS && cached.unknownMoves?.join() === unknown.join()) return cached;
 
   console.log(`PokeAPI と Showdown のデータを取り直します（${reason}）`);
   const sdMoves = await fetchJSON(SHOWDOWN_MOVES);
+  const speciesNum = new Map();
   const tables = await Promise.all([
-    nameTable('pokemon_species_names', 'pokemon_species_id'),
+    nameTable('pokemon_species_names', 'pokemon_species_id', speciesNum),
     nameTable('move_names', 'move_id'),
     nameTable('item_names', 'item_id'),
     nameTable('ability_names', 'ability_id'),
@@ -279,6 +284,8 @@ async function loadReference(usedMoves) {
     fetchedAt: new Date().toISOString(),
     moves: Object.fromEntries(Object.entries(sdMoves).map(([id, d]) => [id, compactMove(d)])),
     names: Object.fromEntries(['species', 'moves', 'items', 'abilities', 'natures'].map((k, i) => [k, Object.fromEntries(tables[i])])),
+    // 英語名 → 全国図鑑の番号（ポケモン徹底攻略へのリンクに使う）
+    speciesNum: Object.fromEntries(speciesNum),
   };
   ref.unknownMoves = [...usedMoves].filter((m) => !ref.moves[norm(m)]);
   await writeJSON(REFERENCE_CACHE, ref);
@@ -346,6 +353,11 @@ async function main() {
   const usedMoves = new Set();
   for (const u of Object.values(usageByFormat)) for (const p of Object.values(u)) for (const [m] of p.moves) usedMoves.add(m);
   const ref = await loadReference(usedMoves);
+  for (const p of Object.values(pokedex)) {
+    const num = ref.speciesNum[norm(p.base)];
+    if (num) p.num = num;
+    else console.warn(`図鑑の番号なし: ${p.name}`);
+  }
   const moves = {};
   for (const m of usedMoves) {
     const d = ref.moves[norm(m)];

@@ -84,6 +84,8 @@ describe('データ', () => {
   it('ランキングと採用データがそろっている', () => {
     expect(doubles.ranking.length).toBeGreaterThan(100);
     for (const r of doubles.ranking) expect(doubles.dex[r.id]).toBeTruthy();
+    // ポケモン徹底攻略へのリンクに使う全国図鑑の番号
+    for (const d of Object.values(doubles.dex)) expect(d.num).toBeGreaterThan(0);
   });
   it('メガストーンでメガシンカ後のフォルムになる', () => {
     expect(megaForItem(doubles.dex.garchomp, 'Garchompite Z').title).toBe('Mega Garchomp Z');
