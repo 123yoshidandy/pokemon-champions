@@ -225,6 +225,7 @@ function simLines(db, x, top) {
   const close = x !== top && top.envWinRate - x.envWinRate < Math.hypot(x.margin, top.margin);
   return [
     h('span', { class: 'reason' }, `勝率 ${pct(x.envWinRate)}（±${pct(x.margin)}・${x.games}試合）${x.fromSuggestion ? '（今の提案）' : ''}${close ? '。1つ目の候補との差はぶれの範囲' : ''}`),
-    x.weakEnv?.length ? h('span', { class: 'reason bad' }, `苦手な相手: ${x.weakEnv.map((w) => `${names(w.ids)}の構築（${pct(w.rate)}）`).join(' / ')}`) : null,
+    // 苦手な相手：その種族がいる相手の構築への勝率（試合数つき）
+    x.weakEnv?.length ? h('span', { class: 'reason bad' }, `苦手な相手: ${x.weakEnv.map((w) => (w.id ? `${jaPokemon(db, w.id)}がいる構築に ${pct(w.rate)}（${w.games}試合）` : `${names(w.ids)}の構築（${pct(w.rate)}）`)).join(' / ')}`) : null,
   ];
 }

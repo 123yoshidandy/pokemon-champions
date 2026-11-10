@@ -2,7 +2,7 @@
 // 重いので、GitHub Actions で事前に計算する（scripts/best-teams.mjs）
 import { usageOf, isMegaStone } from './data.js';
 import { defaultMember, memberWithItem, memberBattler, normalizeTeam, megaStoneShare, MEGA_ONLY_SHARE, TEAM_SIZE } from './team.js';
-import { topMeta, fieldClash } from './analysis.js';
+import { topMeta, fieldClash, weatherMisfits } from './analysis.js';
 import { suggestTeams } from './suggest.js';
 import { rng, battle, choosePicks, matchup } from './sim.js';
 import { buildOpponents, itemFits, fixItems } from './opponents.js';
@@ -21,6 +21,12 @@ export function validTeam(db, team) {
   // メガシンカの型でしか使われていない種族を、メガなしで使わない（メガシンカバトルは除く）
   if (!db.megaRule && team.some((m) => !isMegaStone(db, m.id, m.item) && megaStoneShare(db, m.id) >= MEGA_ONLY_SHARE)) return false;
   return true;
+}
+
+// 探索の候補にしてよいか（規則に加えて、天気に頼るのに構築の天気と合わないメンバーがいない）
+// 相手の構築群は使用率から組み立てたものなので、この規則はかけない
+export function validCandidate(db, team) {
+  return validTeam(db, team) && weatherMisfits(team.map((m) => memberBattler(db, m))).length === 0;
 }
 
 export const teamKey = (team) => team.map((m) => `${m.id}@${m.item}`).sort().join(',');
@@ -107,7 +113,7 @@ function explore(db, starts, { opponents, pool, battles, iterations, patience, s
   let stale = 0;
   for (let it = 0; it < iterations; it++) {
     const next = mutate(db, cur, r, pool);
-    if (next && validTeam(db, next)) {
+    if (next && validCandidate(db, next)) {
       const v = score(next);
       if (v > curV) {
         cur = next;
@@ -163,6 +169,25 @@ export function race(db, candidates, opponents, { battles = 1, keep = 4, seed = 
 }
 
 /**
+ * 苦手な相手：相手の構築の 1 体ずつ（その種族がいる構築）ごとに勝率を集計し、試合数が min 以上のものから、勝率の低い n 体
+ * （1 つの相手の構築との数試合だけの勝率は、ぶれが大きいので）
+ * @returns [{ id, rate, games }]
+ */
+export function weakSpecies(c, opponents, { min = 200, n = 3 } = {}) {
+  const agg = new Map();
+  opponents.forEach((o, k) => {
+    for (const m of o.team) {
+      const a = agg.get(m.id) ?? { wins: 0, games: 0 };
+      a.wins += c.per[k] * c.perGames;
+      a.games += c.perGames;
+      agg.set(m.id, a);
+    }
+  });
+  return [...agg].filter(([, a]) => a.games >= min).map(([id, a]) => ({ id, rate: a.wins / a.games, games: a.games }))
+    .sort((a, b) => a.rate - b.rate).slice(0, n);
+}
+
+/**
  * 一番の構築を探す
  * 1. 相手の構築群の一部と少ない試合の安い評価で局所探索し、評価した構築の上位 candidates 個と今の提案の 5 つを候補にする
  * 2. 候補を、相手の構築群の全部（使用率の重み付き）との段階的なふるい落としで比べ、最後の keep 個は数千試合で比べる
@@ -178,20 +203,16 @@ export function searchBest(db, { opponents: nOpp = 400, searchOpponents = 60, ba
   // 候補に入れるポケモンは、そのルールの使用率の上位 nPool 体に限る
   const starts = suggestTeams(db, [], { pool: nPool, threats: 60, beam: 48, results: 5 })
     .map((s) => fixItems(db, s.team.filter(Boolean)))
-    .filter((t) => validTeam(db, t));
+    .filter((t) => validCandidate(db, t));
   // 1. 安い評価で探す（相手の構築群の一部）
   const seen = explore(db, starts, { opponents: [...opponents.slice(0, searchOpponents), ...opponents.slice(nOpp)], pool, battles, iterations, patience, seed, log });
   const cands = seen.sort((a, b) => b.v - a.v).slice(0, nCand).map((x) => x.team);
   for (const t of starts) if (!cands.some((x) => teamKey(x) === teamKey(t))) cands.push(t);
   // 2. ふるい落とし（探索とは別のシードの試合で）
   const raced = race(db, cands, opponents, { battles: raceBattles, keep, seed: seed + 7777, log });
-  const ids = (t) => t.map((x) => x.id);
-  const byRank = (list) => list.slice().sort((a, b) => (db.rankOf.get(a)?.pos ?? 999) - (db.rankOf.get(b)?.pos ?? 999));
   const row = (c) => ({
     team: normalizeTeam(c.team), envWinRate: c.rate, margin: c.margin, games: c.games,
-    // 苦手な相手：勝率が低い相手の構築の、主なメンバー（使用率の順位が高い 3 体）
-    weakEnv: c.per.map((v, k) => ({ v, k })).sort((a, b) => a.v - b.v).slice(0, 3)
-      .map(({ v, k }) => ({ ids: byRank(ids(opponents[k].team)).slice(0, 3), rate: v })),
+    weakEnv: weakSpecies(c, opponents),
     fromSuggestion: starts.some((t) => teamKey(t) === teamKey(c.team)),
   });
   const ranking = raced.slice(0, keep).map(row);
@@ -213,10 +234,8 @@ export function finalRace(db, teams, { opponents: nOpp = 400, raceBattles = 8, k
   const uniq = [];
   for (const t of teams) if (!uniq.some((x) => teamKey(x) === teamKey(t))) uniq.push(t);
   const raced = race(db, uniq, opponents, { battles: raceBattles, keep, seed: seed + 7777, log });
-  const byRank = (list) => list.slice().sort((a, b) => (db.rankOf.get(a)?.pos ?? 999) - (db.rankOf.get(b)?.pos ?? 999));
   return raced.slice(0, keep).map((c) => ({
     team: normalizeTeam(c.team), envWinRate: c.rate, margin: c.margin, games: c.games,
-    weakEnv: c.per.map((v, k) => ({ v, k })).sort((a, b) => a.v - b.v).slice(0, 3)
-      .map(({ v, k }) => ({ ids: byRank(opponents[k].team.map((m) => m.id)).slice(0, 3), rate: v })),
+    weakEnv: weakSpecies(c, opponents),
   }));
 }

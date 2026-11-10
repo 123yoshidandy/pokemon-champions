@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { makeDB, megaRuleDB, canMega } from '../js/data.js';
 import { buildOpponents, itemFits } from '../js/opponents.js';
-import { validTeam, evaluateTeam, searchBest, race } from '../js/best.js';
-import { memberWithItem } from '../js/team.js';
+import { validTeam, validCandidate, evaluateTeam, searchBest, race, weakSpecies } from '../js/best.js';
+import { memberWithItem, memberBattler } from '../js/team.js';
+import { weatherMisfits } from '../js/analysis.js';
 
 const read = (f) => JSON.parse(readFileSync(new URL(`../data/${f}`, import.meta.url), 'utf8'));
 const shared = { dex: read('pokedex.json'), moves: read('moves.json'), names: read('names-ja.json'), meta: read('meta.json') };
@@ -53,6 +54,17 @@ describe('一番の構築の探索', () => {
     expect(r.ranking).toHaveLength(2);
     expect(r.ranking[0].envWinRate).toBeGreaterThanOrEqual(r.ranking[1].envWinRate);
     for (const x of r.ranking) expect(x.margin).toBeGreaterThan(0);
+  });
+  it('天気に頼るのに、構築の天気と合わないメンバーがいる構築は、候補にしない', () => {
+    const opp = buildOpponents(doubles, { n: 100, seed: 7 });
+    const misfit = opp.filter((o) => validTeam(doubles, o.team) && weatherMisfits(o.team.map((m) => memberBattler(doubles, m))).length > 0);
+    expect(misfit.length).toBeGreaterThan(0);
+    for (const o of misfit) expect(validCandidate(doubles, o.team)).toBe(false);
+  });
+  it('苦手な相手は、その種族がいる相手の構築ごとに、試合数が足りるものだけ', () => {
+    const opponents = [{ team: [{ id: 'a' }, { id: 'b' }] }, { team: [{ id: 'a' }, { id: 'c' }] }];
+    const w = weakSpecies({ per: [0.2, 0.6], perGames: 100 }, opponents, { min: 150 });
+    expect(w).toEqual([{ id: 'a', rate: 0.4, games: 200 }]);
   });
   it('ふるい落としでは、残った候補ほど多く試合する', () => {
     const opp = buildOpponents(doubles, { n: 6, seed: 5 }).map((o) => ({ ...o, picksVs: new Map(), picksMine: new Map() }));
