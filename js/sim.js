@@ -53,6 +53,22 @@ const INTIMIDATE_IMMUNE = new Set(['Clear Body', 'White Smoke', 'Full Metal Body
 const DROP_IMMUNE = new Set(['Clear Body', 'White Smoke', 'Full Metal Body', 'Mirror Armor']);
 const MAX_TURNS = 40;
 
+// 能力を上げる技（積み技）
+const SETUP = {
+  'Swords Dance': { atk: 2 }, 'Nasty Plot': { spa: 2 }, 'Calm Mind': { spa: 1, spd: 1 }, 'Dragon Dance': { atk: 1, spe: 1 },
+  'Bulk Up': { atk: 1, def: 1 }, 'Quiver Dance': { spa: 1, spd: 1, spe: 1 }, 'Shell Smash': { atk: 2, spa: 2, spe: 2, def: -1, spd: -1 },
+  'Victory Dance': { atk: 1, def: 1, spe: 1 }, 'Coil': { atk: 1, def: 1 }, 'Iron Defense': { def: 2 }, 'Agility': { spe: 2 },
+  'Tidy Up': { atk: 1, spe: 1 }, 'Shift Gear': { atk: 1, spe: 2 }, 'Growth': { atk: 1, spa: 1 }, 'Work Up': { atk: 1, spa: 1 },
+};
+// 眠らせる技（あくびは、次のターンの終わりに眠る）
+const SLEEP = new Set(['Spore', 'Sleep Powder', 'Hypnosis', 'Sing', 'Dark Void', 'Yawn']);
+const POWDER = new Set(['Spore', 'Sleep Powder']);
+// HP を半分回復する技
+const RECOVER = new Set(['Recover', 'Roost', 'Slack Off', 'Soft-Boiled', 'Moonlight', 'Morning Sun', 'Synthesis', 'Milk Drink', 'Shore Up', 'Strength Sap', 'Life Dew']);
+// 天気で強くなる技（にほんばれ・あまごいを使うかの目安）
+const WEATHER_USE = { 'Solar Beam': 'sun', 'Solar Blade': 'sun', 'Weather Ball': null, 'Heat Wave': 'sun', Flamethrower: 'sun', 'Fire Blast': 'sun', 'Hydro Pump': 'rain', Surf: 'rain', 'Muddy Water': 'rain', Thunder: 'rain', Hurricane: 'rain' };
+const WEATHER_MOVE = { 'Sunny Day': 'sun', 'Rain Dance': 'rain', Sandstorm: 'sand', 'Snowscape': 'snow' };
+
 // ---------- 場の状態 ----------
 
 function makeMon(db, member, side) {
@@ -62,11 +78,13 @@ function makeMon(db, member, side) {
     hp: b.stats[0], max: b.stats[0], item: b.item,
     boosts: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
     lock: null, charging: null, protectStreak: 0, turnsOut: 0, fainted: false,
+    // 状態異常（slp・brn・par）と、ねむりの残りターン、あくび、ちょうはつの残りターン
+    status: null, sleep: 0, yawn: 0, taunt: 0,
   };
 }
 
 // ダメージ計算に渡す形
-const view = (m) => ({ ...m.b, item: m.item, boosts: m.boosts, hpPct: (m.hp / m.max) * 100 });
+const view = (m) => ({ ...m.b, item: m.item, boosts: m.boosts, status: m.status, hpPct: (m.hp / m.max) * 100 });
 
 function newBattle(db, teams, picks, seed) {
   const doubles = db.doubles;
@@ -93,6 +111,8 @@ function enter(st, m) {
   m.lock = null;
   m.charging = null;
   m.protectStreak = 0;
+  m.taunt = 0;
+  m.yawn = 0;
   m.boosts = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
   const ab = m.b.ability;
   if (ab === 'Intimidate') {
@@ -116,6 +136,7 @@ export function speedOf(st, m) {
   if (m.item === 'Choice Scarf') s = Math.floor(s * 1.5);
   if (st.sides[m.side].tailwind > 0) s *= 2;
   if (SPEED_WEATHER[m.b.ability] && SPEED_WEATHER[m.b.ability] === st.weather) s *= 2;
+  if (m.status === 'par') s = Math.floor(s / 2);
   return s;
 }
 
@@ -130,11 +151,11 @@ function priorityOf(st, m, act) {
 
 // ---------- ダメージ ----------
 
-function fieldFor(st, att, def, spread, crit = false) {
+function fieldFor(st, att, def, spread, crit = false, helpingHand = false) {
   const ds = st.sides[def.side];
   return {
     doubles: st.doubles, weather: st.weather, terrain: st.terrain, crit, spread,
-    reflect: ds.reflect > 0 || ds.veil > 0, lightScreen: ds.lightScreen > 0 || ds.veil > 0,
+    helpingHand, reflect: ds.reflect > 0 || ds.veil > 0, lightScreen: ds.lightScreen > 0 || ds.veil > 0,
   };
 }
 
@@ -196,6 +217,15 @@ function attackOptions(st, m) {
   return out;
 }
 
+// 眠らせられるか（くさタイプにこな技は効かない。エレキフィールド・ミストフィールドでは、地面にいるポケモンは眠らない）
+function canSleep(st, f, move) {
+  if (f.status || f.yawn) return false;
+  if (POWDER.has(move) && (f.b.types.includes('Grass') || f.b.ability === 'Overcoat' || f.item === 'Safety Goggles')) return false;
+  if (['Insomnia', 'Vital Spirit', 'Sweet Veil'].includes(f.b.ability)) return false;
+  const grounded = !f.b.types.includes('Flying') && f.b.ability !== 'Levitate';
+  return !(grounded && (st.terrain === 'electric' || st.terrain === 'misty'));
+}
+
 function chooseAction(st, m) {
   // ため技の2ターン目
   if (m.charging) return { type: 'move', move: m.charging.move, target: m.charging.target };
@@ -224,11 +254,56 @@ function chooseAction(st, m) {
     // このゆびとまれ：味方がいて、自分が倒されそうでないとき
     const redirect = m.b.moves.find((x) => REDIRECT.has(x));
     if (st.doubles && redirect && partnerOf(st, m) && r() < 0.6) opts.push({ type: 'move', move: redirect, value: 50 });
+    const bestAttack = (x) => Math.max(0, ...attackOptions(st, x).map((o) => o.value));
+    const threat = threatened(st, m);
+    // てだすけ：自分の打点が、相方よりかなり低いとき
+    const partner = partnerOf(st, m);
+    if (st.doubles && hasMove(m, 'Helping Hand') && partner && bestAttack(m) < bestAttack(partner) * 0.6) opts.push({ type: 'move', move: 'Helping Hand', value: 40 });
+    // ワイドガード：相手が全体技を持つとき、ときどき
+    if (st.doubles && hasMove(m, 'Wide Guard') && m.protectStreak === 0 && r() < 0.4 &&
+        foes.some((f) => f.b.moves.some((x) => SPREAD.has(moveData(st.db, x)?.target) && isAttack(moveData(st.db, x))))) opts.push({ type: 'move', move: 'Wide Guard', value: 48 });
+    // 積み技：倒されそうでなく、まだ上げていないとき
+    const setup = m.b.moves.find((x) => SETUP[x] && Object.entries(SETUP[x]).some(([k, n]) => n > 0 && m.boosts[k] < 2));
+    if (setup && !threat) opts.push({ type: 'move', move: setup, value: 52 });
+    // ねむり：相手に眠っているポケモンがいなければ（ねむりの重ねがけは禁止）、一番強い相手に
+    const sleepMove = m.b.moves.find((x) => SLEEP.has(x));
+    if (sleepMove && !foeSide(st, m).mons.some((x) => x.status === 'slp' && !x.fainted)) {
+      const t = foes.filter((f) => canSleep(st, f, sleepMove)).sort((a, b) => bestAttack(a) - bestAttack(b)).pop();
+      if (t) opts.push({ type: 'move', move: sleepMove, target: t, value: 58 * ((moveData(st.db, sleepMove)?.acc ?? 100) / 100) });
+    }
+    // おにび：物理の相手に。でんじは：自分より速い相手に
+    if (hasMove(m, 'Will-O-Wisp')) {
+      const t = foes.find((f) => !f.status && !f.b.types.includes('Fire') && f.b.stats[1] > f.b.stats[3]);
+      if (t) opts.push({ type: 'move', move: 'Will-O-Wisp', target: t, value: 45 });
+    }
+    if (hasMove(m, 'Thunder Wave')) {
+      const t = foes.find((f) => !f.status && !f.b.types.includes('Electric') && !f.b.types.includes('Ground') && speedOf(st, f) > speedOf(st, m));
+      if (t) opts.push({ type: 'move', move: 'Thunder Wave', target: t, value: 38 });
+    }
+    // 回復：HP が半分を切ったら
+    const heal = m.b.moves.find((x) => RECOVER.has(x));
+    if (heal && m.hp < m.max / 2) opts.push({ type: 'move', move: heal, value: 48 });
+    // ちょうはつ：相手がトリックルーム・おいかぜを張れるとき
+    if (hasMove(m, 'Taunt')) {
+      const t = foes.find((f) => !f.taunt && ((hasMove(f, 'Trick Room') && !st.trickRoom) || (hasMove(f, 'Tailwind') && !foeSide(st, m).tailwind)));
+      if (t) opts.push({ type: 'move', move: 'Taunt', target: t, value: 56 });
+    }
+    // すてゼリフ：控えがいるとき
+    if (hasMove(m, 'Parting Shot') && side.reserve.some((x) => !x.fainted) && foes.length) {
+      opts.push({ type: 'move', move: 'Parting Shot', target: foes.sort((a, b) => bestAttack(a) - bestAttack(b)).at(-1), value: 35 });
+    }
+    // にほんばれ・あまごい：その天気を使う味方がいて、その天気でないとき
+    const wm = m.b.moves.find((x) => WEATHER_MOVE[x] && st.weather !== WEATHER_MOVE[x]);
+    if (wm && side.mons.some((x) => !x.fainted && (x.b.moves.some((y) => WEATHER_USE[y] === WEATHER_MOVE[wm]) || SPEED_WEATHER[x.b.ability] === WEATHER_MOVE[wm]))) {
+      opts.push({ type: 'move', move: wm, value: 42 });
+    }
     // まもる：倒されそうなとき、続けてでなければ半分くらいの確率で
     const protect = m.b.moves.find((x) => PROTECT.has(x));
     if (protect && m.protectStreak === 0 && r() < 0.5 && threatened(st, m)) opts.push({ type: 'move', move: protect, value: 75 });
   }
-  const best = opts.sort((a, b) => b.value - a.value)[0];
+  // ちょうはつを受けていれば、変化技は使えない
+  const usableOpts = m.taunt > 0 ? opts.filter((o) => isAttack(moveData(st.db, o.move))) : opts;
+  const best = usableOpts.sort((a, b) => b.value - a.value)[0];
   // 打点がほとんどなく、控えに替えられるなら替える
   if ((!best || best.value < 8) && st.sides[m.side].reserve.some((x) => !x.fainted)) {
     const to = pickReserve(st, m.side);
@@ -297,6 +372,35 @@ function useMove(st, m, act, ctx) {
     else if (name === 'Light Screen') side.lightScreen = m.item === 'Light Clay' ? 8 : 5;
     else if (name === 'Aurora Veil' && st.weather === 'snow') side.veil = m.item === 'Light Clay' ? 8 : 5;
     else if (REDIRECT.has(name)) ctx.redirect[m.side] = m;
+    else if (name === 'Helping Hand') { const p = partnerOf(st, m); if (p) ctx.helping.add(p); }
+    else if (name === 'Wide Guard') {
+      const ok = m.protectStreak === 0 || st.r() < 1 / 3 ** m.protectStreak;
+      if (ok) ctx.wideGuard[m.side] = true;
+      m.protectStreak = ok ? m.protectStreak + 1 : 0;
+      return;
+    } else if (SETUP[name]) {
+      for (const [k, n] of Object.entries(SETUP[name])) boost(m, k, n);
+    } else if (RECOVER.has(name)) {
+      m.hp = Math.min(m.max, m.hp + Math.floor(m.max / 2));
+    } else if (WEATHER_MOVE[name]) {
+      st.weather = WEATHER_MOVE[name];
+      st.weatherTurns = 5;
+    } else if (act.target && !act.target.fainted && !ctx.protected.has(act.target)) {
+      // 相手にかける変化技（命中も見る）
+      const t = act.target;
+      if (mv.acc != null && st.r() * 100 >= mv.acc) { m.protectStreak = 0; return; }
+      if (SLEEP.has(name) && canSleep(st, t, name)) {
+        if (name === 'Yawn') t.yawn = 2;
+        else { t.status = 'slp'; t.sleep = 1 + Math.floor(st.r() * 3); }
+      } else if (name === 'Will-O-Wisp' && !t.status && !t.b.types.includes('Fire')) t.status = 'brn';
+      else if (name === 'Thunder Wave' && !t.status && !t.b.types.includes('Electric') && !t.b.types.includes('Ground')) t.status = 'par';
+      else if (name === 'Taunt' && t.b.ability !== 'Oblivious') t.taunt = 3;
+      else if (name === 'Parting Shot') {
+        if (!DROP_IMMUNE.has(t.b.ability)) { boost(t, 'atk', -1); boost(t, 'spa', -1); }
+        const to = pickReserve(st, m.side);
+        if (to) switchIn(st, m.side, m, to);
+      }
+    }
     m.protectStreak = 0;
     return;
   }
@@ -330,9 +434,11 @@ function useMove(st, m, act, ctx) {
   let dealt = 0;
   for (const t of targets) {
     if (ctx.protected.has(t)) continue;
+    // ワイドガードは、全体技を防ぐ
+    if (spread && ctx.wideGuard[t.side]) continue;
     if (mv.acc != null && st.r() * 100 >= mv.acc) continue;
     const crit = st.r() < 1 / 24;
-    const res = calcDamage(view(m), view(t), move, fieldFor(st, m, t, spread, crit));
+    const res = calcDamage(view(m), view(t), move, fieldFor(st, m, t, spread, crit, ctx.helping.has(m)));
     let d = res.rolls[Math.floor(st.r() * 16)];
     if (d <= 0) continue;
     // 半減の実
@@ -384,12 +490,18 @@ function runTurn(st) {
     }
   }
   acts.sort((a, b) => b.prio - a.prio || (st.trickRoom ? a.speed - b.speed : b.speed - a.speed) || a.tie - b.tie);
-  const ctx = { protected: new Set(), flinched: new Set(), moved: new Set(), redirect: [null, null] };
+  const ctx = { protected: new Set(), flinched: new Set(), moved: new Set(), redirect: [null, null], helping: new Set(), wideGuard: [false, false] };
   // まもる・このゆびとまれは、優先度が高いので先に効く（並べた順に処理すれば足りる）
   for (const { m, act } of acts) {
     if (m.fainted) continue;
     ctx.moved.add(m);
     if (ctx.flinched.has(m)) { m.charging = null; continue; }
+    // ねむり：残りのターンの間は動けず、0 になったら起きて動く。まひ：4 回に 1 回動けない
+    if (m.status === 'slp' && act.type === 'move') {
+      if (m.sleep > 0) { m.sleep--; continue; }
+      m.status = null;
+    }
+    if (m.status === 'par' && act.type === 'move' && st.r() < 0.25) continue;
     if (act.type === 'switch') { if (!act.to.fainted) switchIn(st, m.side, m, act.to); continue; }
     if (act.type === 'move') useMove(st, m, act, ctx);
     if (st.sides.some((s) => s.mons.every((x) => x.fainted))) break;
@@ -401,6 +513,13 @@ function endOfTurn(st) {
   for (const side of st.sides) {
     for (const m of aliveActive(side)) {
       if (m.item === 'Leftovers') m.hp = Math.min(m.max, m.hp + Math.floor(m.max / 16));
+      if (m.status === 'brn' && m.b.ability !== 'Magic Guard') {
+        damage(m, Math.floor(m.max / 16));
+        if (m.hp <= 0) { faint(st, m); continue; }
+      }
+      // あくび：次のターンの終わりに眠る
+      if (m.yawn && --m.yawn === 0 && !m.status) { m.status = 'slp'; m.sleep = 1 + Math.floor(st.r() * 3); }
+      if (m.taunt > 0) m.taunt--;
       if (st.weather === 'sand' && !m.b.types.some((t) => ['Rock', 'Ground', 'Steel'].includes(t)) && !['Sand Veil', 'Sand Rush', 'Sand Force', 'Overcoat', 'Magic Guard'].includes(m.b.ability)) {
         damage(m, Math.floor(m.max / 16));
         if (m.hp <= 0) faint(st, m);

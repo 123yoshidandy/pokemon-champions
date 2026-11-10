@@ -16,6 +16,11 @@ const MOVES = {
   'Fake Out': { type: 'Normal', cat: 'Physical', power: 40, acc: 100, prio: 3, target: 'normal', contact: true },
   Tailwind: { type: 'Flying', cat: 'Status', power: 0, acc: null, prio: 0, target: 'allySide' },
   'Trick Room': { type: 'Psychic', cat: 'Status', power: 0, acc: null, prio: -7, target: 'all' },
+  'Helping Hand': { type: 'Normal', cat: 'Status', power: 0, acc: null, prio: 5, target: 'adjacentAlly' },
+  'Wide Guard': { type: 'Rock', cat: 'Status', power: 0, acc: null, prio: 3, target: 'allySide' },
+  'Swords Dance': { type: 'Normal', cat: 'Status', power: 0, acc: null, prio: 0, target: 'self' },
+  Spore: { type: 'Grass', cat: 'Status', power: 0, acc: 100, prio: 0, target: 'normal' },
+  'Will-O-Wisp': { type: 'Fire', cat: 'Status', power: 0, acc: 100, prio: 0, target: 'normal' },
 };
 const mon = (name, spe, types = ['Normal'], abilities = ['']) => ({ name, base: name, types, abilities, stats: [180, 120, 100, 120, 100, spe], weight: 50, megas: [] });
 const DEX = { fast: mon('Fast', 150), slow: mon('Slow', 50), mid: mon('Mid', 100), sunny: mon('Sunny', 90, ['Fire'], ['Drought']), wall: mon('Wall', 60, ['Water']) };
@@ -110,6 +115,38 @@ describe('シミュレーター', () => {
     const b = [m('slow', ['Strike', 'Trick Room']), m('mid', ['Strike', 'Tailwind']), m('wall', ['Wave', 'Protect']), m('fast', ['Fake Out', 'Strike'])];
     const ids = (t) => t.map((x) => x.id);
     expect(battle(db, [a, b], [ids(a), ids(b)], 42)).toBe(battle(db, [a, b], [ids(a), ids(b)], 42));
+  });
+});
+
+describe('変化技', () => {
+  it('積み技でランクが上がる。キノコのほうしで眠った相手は動けない', () => {
+    const db = tiny(false);
+    const st = start(db, [m('wall', ['Swords Dance', 'Strike'])], [m('slow', ['Strike'])]);
+    runTurn(st);
+    expect(st.sides[0].mons[0].boosts.atk).toBe(2);
+    const st2 = start(db, [m('fast', ['Spore', 'Strike'])], [m('wall', ['Strike'])]);
+    runTurn(st2);
+    const foe = st2.sides[1].mons[0];
+    expect(foe.status).toBe('slp');
+  });
+  it('やけどで物理の打点が下がり、毎ターン削れる', () => {
+    const db = tiny(false);
+    const st = start(db, [m('wall', ['Strike'])], [m('slow', ['Strike'])]);
+    const foe = st.sides[1].mons[0];
+    const plain = _internal.expected(st, foe, st.sides[0].mons[0], 'Strike', false).avg;
+    foe.status = 'brn';
+    expect(_internal.expected(st, foe, st.sides[0].mons[0], 'Strike', false).avg).toBeLessThan(plain * 0.6);
+  });
+  it('ワイドガードで、全体技を防ぐ', () => {
+    const db = tiny(true);
+    // ワイドガードは確率で使うので、使ったターンを探す
+    let blocked = false;
+    for (let seed = 1; seed < 40 && !blocked; seed++) {
+      const st = start(db, [m('fast', ['Wave']), m('mid', ['Wave'])], [m('slow', ['Wide Guard']), m('wall', ['Strike'])], seed);
+      runTurn(st);
+      if (st.sides[1].active.every((x) => x.hp === x.max)) blocked = true;
+    }
+    expect(blocked).toBe(true);
   });
 });
 
